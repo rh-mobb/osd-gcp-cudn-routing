@@ -1,0 +1,16 @@
+# OCM offline token. Prefer OSDGOOGLE_TOKEN env var for local dev:
+# export OSDGOOGLE_TOKEN="your-token"
+#ocm_token = ""
+
+# GCP project ID (required). Set via TF_VAR_gcp_project_id or uncomment:
+#gcp_project_id = "my-gcp-project"
+
+# Cluster base name. WIF display name is derived as cluster_name-wif.
+# Must match examples/cluster variable. Set via TF_VAR_cluster_name or uncomment:
+#cluster_name = "my-wif-cluster"
+
+# OpenShift version (x.y.z). WIF roles use x.y only.
+openshift_version = "4.21.3"
+
+# Prefix for custom IAM roles. When null, uses cluster_name.
+#role_prefix = null

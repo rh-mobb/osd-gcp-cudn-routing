@@ -1,0 +1,126 @@
+variable "ocm_token" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "OCM offline token (optional; use OSDGOOGLE_TOKEN env var instead)"
+}
+
+variable "gcp_project_id" {
+  type        = string
+  description = "GCP project ID for the cluster"
+}
+
+variable "cluster_name" {
+  type        = string
+  default     = "my-bgp-cluster"
+  description = "Name of the cluster (must match terraform/wif_config)"
+}
+
+variable "openshift_version" {
+  type        = string
+  default     = "4.21.3"
+  description = "OpenShift version (x.y.z)"
+}
+
+variable "admin_password" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Cluster admin password (optional; auto-generated if omitted)"
+}
+
+variable "gcp_region" {
+  type        = string
+  default     = "us-central1"
+  description = "GCP region"
+}
+
+variable "compute_machine_type" {
+  type        = string
+  default     = "c3-standard-192-metal"
+  description = "Bare metal machine type for worker nodes"
+}
+
+variable "compute_nodes" {
+  type        = number
+  default     = 3
+  description = "Number of worker nodes"
+}
+
+variable "availability_zone" {
+  type        = string
+  default     = "us-central1-a"
+  description = "Single zone for bare metal workers. The machine type must be available in this zone."
+}
+
+variable "cudn_cidr" {
+  type        = string
+  default     = "10.100.0.0/16"
+  description = "CUDN CIDR advertised via BGP to the VPC"
+}
+
+variable "enable_bgp_routing" {
+  type        = bool
+  default     = false
+  description = "Enable BGP/NCC/Cloud Router routing. Set true on the second apply after workers are running."
+}
+
+variable "cloud_router_asn" {
+  type        = number
+  default     = 64512
+  description = "BGP ASN on Cloud Router (RFC 6996 private ASN)."
+}
+
+variable "frr_asn" {
+  type        = number
+  default     = 65003
+  description = "BGP ASN on cluster nodes (FRRConfiguration); must match Cloud Router peer_asn."
+}
+
+variable "bgp_interface_host_offset" {
+  type        = number
+  default     = 230
+  description = "Host index base for Cloud Router interface IPs (see modules/osd-bgp-routing)."
+}
+
+variable "router_interface_private_ips" {
+  type        = list(string)
+  default     = null
+  description = "Optional explicit Cloud Router interface IPs (same length as workers when set)."
+}
+
+variable "enable_echo_client_vm" {
+  type        = bool
+  default     = false
+  description = "Optional echo VM for CUDN checks. Requires enable_bgp_routing=true."
+}
+
+variable "echo_client_vm_zone" {
+  type        = string
+  default     = null
+  description = "Zone for the echo VM. If null, uses the first worker zone."
+}
+
+variable "echo_client_vm_port" {
+  type        = number
+  default     = 8080
+  description = "Host port for the echo VM HTTP listener."
+}
+
+variable "echo_client_vm_machine_type" {
+  type        = string
+  default     = "e2-medium"
+  description = "Machine type for the echo VM."
+}
+
+variable "enable_psc" {
+  type        = bool
+  default     = false
+  description = "Enable PSC for private cluster (requires OpenShift 4.17+)"
+}
+
+variable "ncc_spoke_site_to_site_data_transfer" {
+  type        = bool
+  default     = false
+  description = "NCC router appliance spoke site_to_site_data_transfer flag."
+}
