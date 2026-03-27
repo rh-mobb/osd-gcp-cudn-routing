@@ -29,6 +29,33 @@ variable "cudn_cidr" {
   description = "CUDN prefix advertised via BGP and used in worker-subnet-to-CUDN firewall"
 }
 
+variable "worker_subnet_to_cudn_firewall_mode" {
+  type        = string
+  default     = "e2etest"
+  description = <<-EOT
+    Ingress firewall for traffic from the worker subnet to CUDN CIDR.
+    - all: allow all protocols (broadest; closer to former PoC default).
+    - e2etest: ICMP plus TCP/80 only (enough for make *-e2e: ping + icanhazip HTTP on pods).
+    - none: do not create this rule (supply your own firewall policy).
+  EOT
+
+  validation {
+    condition     = contains(["all", "e2etest", "none"], var.worker_subnet_to_cudn_firewall_mode)
+    error_message = "worker_subnet_to_cudn_firewall_mode must be all, e2etest, or none."
+  }
+}
+
+variable "routing_worker_target_tags" {
+  type        = list(string)
+  default     = []
+  description = <<-EOT
+    If non-empty, restrict worker-subnet→CUDN and BGP (tcp/179) firewall rules to instances with these
+    network tags (GCP best practice for router appliances). OSD workers must be configured with matching
+    tags (e.g. MachineSet / instance template). Empty list = rule applies to all instances in the VPC
+    that match source/destination ranges (reference / lab default).
+  EOT
+}
+
 variable "router_instances" {
   type = list(object({
     name       = string
@@ -60,7 +87,17 @@ variable "bgp_interface_host_offset" {
 variable "router_interface_private_ips" {
   type        = list(string)
   default     = null
-  description = "Optional explicit private IPs for the 2 Cloud Router interfaces (primary + redundant). Must have exactly 2 elements if set. If null, IPs are derived from subnet CIDR and bgp_interface_host_offset."
+  description = "Optional explicit private IPs for the 2 Cloud Router interfaces (primary + redundant). Must have exactly 2 elements if set. If null, IPs are derived from subnet CIDR and bgp_interface_host_offset. Each IP must lie within the worker subnetwork primary CIDR."
+}
+
+variable "reserve_cloud_router_interface_ips" {
+  type        = bool
+  default     = true
+  description = <<-EOT
+    When true (recommended), create google_compute_address (INTERNAL, GCE_ENDPOINT) for each Cloud Router interface IP
+    so other GCE resources cannot claim those addresses. Set false for brownfield stacks where interfaces already exist
+    without reservations—then enable reservations in a planned maintenance window if desired.
+  EOT
 }
 
 variable "enable_echo_client_vm" {

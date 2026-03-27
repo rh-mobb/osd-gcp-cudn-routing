@@ -59,6 +59,23 @@ variable "cudn_cidr" {
   description = "CUDN CIDR advertised via BGP to the VPC"
 }
 
+variable "worker_subnet_to_cudn_firewall_mode" {
+  type        = string
+  default     = "e2etest"
+  description = "Worker subnet → CUDN firewall: all | e2etest (default) | none. Passed to osd-bgp-routing."
+
+  validation {
+    condition     = contains(["all", "e2etest", "none"], var.worker_subnet_to_cudn_firewall_mode)
+    error_message = "worker_subnet_to_cudn_firewall_mode must be all, e2etest, or none."
+  }
+}
+
+variable "routing_worker_target_tags" {
+  type        = list(string)
+  default     = []
+  description = "Optional network tags to scope worker→CUDN and BGP:179 firewalls to router workers. Empty = subnet-wide (lab default)."
+}
+
 variable "enable_bgp_routing" {
   type        = bool
   default     = false
@@ -86,7 +103,13 @@ variable "bgp_interface_host_offset" {
 variable "router_interface_private_ips" {
   type        = list(string)
   default     = null
-  description = "Optional explicit Cloud Router interface IPs (same length as workers when set)."
+  description = "Optional explicit Cloud Router interface IPs (exactly 2 elements: primary + redundant). If null, derived from subnet CIDR + bgp_interface_host_offset. Must fall within the worker subnetwork primary CIDR."
+}
+
+variable "reserve_cloud_router_interface_ips" {
+  type        = bool
+  default     = true
+  description = "Reserve Cloud Router interface IPs with google_compute_address (recommended). Set false for brownfield upgrades if plan fails until interfaces are recreated; see modules/osd-bgp-routing README."
 }
 
 variable "enable_echo_client_vm" {

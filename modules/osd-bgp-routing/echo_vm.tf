@@ -30,8 +30,7 @@ resource "google_compute_instance" "echo_client" {
 
   network_interface {
     subnetwork = var.subnet_id
-
-    access_config {}
+    # No external IP — SSH only via IAP: gcloud compute ssh --tunnel-through-iap
   }
 
   metadata = {
@@ -66,7 +65,8 @@ resource "google_compute_firewall" "echo_client_from_cudn" {
   }
 }
 
-resource "google_compute_firewall" "echo_client_ssh_public" {
+# IAP TCP forwarding range — https://cloud.google.com/iap/docs/using-tcp-forwarding#create_firewall_rule
+resource "google_compute_firewall" "echo_client_ssh_iap" {
   count = var.enable_echo_client_vm ? 1 : 0
 
   project     = var.project_id
@@ -74,10 +74,10 @@ resource "google_compute_firewall" "echo_client_ssh_public" {
   network     = var.vpc_id
   direction   = "INGRESS"
   priority    = 100
-  description = "Allow SSH to echo VM public IP (destination = instance internal IP /32)"
+  description = "SSH to echo VM via IAP (gcloud compute ssh --tunnel-through-iap). Requires IAP API enabled and iap.tunnelInstances.accessViaIAP on the user."
 
-  source_ranges      = ["0.0.0.0/0"]
-  destination_ranges = ["${google_compute_instance.echo_client[0].network_interface[0].network_ip}/32"]
+  source_ranges = ["35.235.240.0/20"]
+  target_tags   = local.echo_vm_tags
 
   allow {
     protocol = "tcp"
@@ -85,4 +85,9 @@ resource "google_compute_firewall" "echo_client_ssh_public" {
   }
 
   depends_on = [google_compute_instance.echo_client]
+}
+
+moved {
+  from = google_compute_firewall.echo_client_ssh_public
+  to   = google_compute_firewall.echo_client_ssh_iap
 }

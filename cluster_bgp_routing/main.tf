@@ -110,12 +110,16 @@ module "bgp_routing" {
   subnet_id    = "projects/${var.gcp_project_id}/regions/${var.gcp_region}/subnetworks/${module.osd_vpc.compute_subnet}"
   cudn_cidr    = var.cudn_cidr
 
+  worker_subnet_to_cudn_firewall_mode = var.worker_subnet_to_cudn_firewall_mode
+  routing_worker_target_tags          = var.routing_worker_target_tags
+
   router_instances = local.worker_instances
 
-  cloud_router_asn             = var.cloud_router_asn
-  frr_asn                      = var.frr_asn
-  bgp_interface_host_offset    = var.bgp_interface_host_offset
-  router_interface_private_ips = var.router_interface_private_ips
+  cloud_router_asn                   = var.cloud_router_asn
+  frr_asn                            = var.frr_asn
+  bgp_interface_host_offset          = var.bgp_interface_host_offset
+  router_interface_private_ips       = var.router_interface_private_ips
+  reserve_cloud_router_interface_ips = var.reserve_cloud_router_interface_ips
 
   ncc_spoke_site_to_site_data_transfer = var.ncc_spoke_site_to_site_data_transfer
 

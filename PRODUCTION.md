@@ -5,9 +5,13 @@ This repository is a **proof of concept**. Nothing here is presented as producti
 | Stack | Checklist |
 |-------|-----------|
 | **ILB** (`cluster_ilb_routing/`) | [**cluster_ilb_routing/PRODUCTION.md**](cluster_ilb_routing/PRODUCTION.md) — backends, kubelet health probes, static routes / multiple CUDNs, per-zone instance groups |
-| **BGP** (`cluster_bgp_routing/`) | [**cluster_bgp_routing/PRODUCTION.md**](cluster_bgp_routing/PRODUCTION.md) — NCC/Cloud Router sync, per-node FRR, router IPs, IAM, ASN/monitoring |
+| **BGP** (`cluster_bgp_routing/`) | [**cluster_bgp_routing/PRODUCTION.md**](cluster_bgp_routing/PRODUCTION.md) — NCC/Cloud Router sync, per-node FRR, router IPs, IAM, ASN/monitoring; **actionable roadmap:** [**PRODUCTION-ROADMAP.md**](cluster_bgp_routing/PRODUCTION-ROADMAP.md) |
 
 For PoC limits already stated in-repo, see [Known limitations (ILB)](cluster_ilb_routing/README.md#known-limitations-ilb-focused) and [Known limitations (BGP)](cluster_bgp_routing/README.md#known-limitations). For choosing between approaches, see [ILB-vs-BGP.md](ILB-vs-BGP.md).
+
+## Terraform state
+
+Use **remote state** (for example **GCS** with versioning and locking) for anything beyond a single-developer lab. See [docs/terraform-backend-gcs.md](docs/terraform-backend-gcs.md) and each stack’s **`backend.tf.example`** under **`cluster_ilb_routing/`** and **`cluster_bgp_routing/`**.
 
 ---
 
@@ -47,7 +51,7 @@ This repo does **not** ship a controller; the table above is **design guidance**
 
 ### Security and compliance
 
-**Remove or harden PoC-only assets** (for example **echo VM**, **SSH from `0.0.0.0/0`**). See [Security (PoC)](cluster_ilb_routing/README.md#security-poc) and [Security (PoC)](cluster_bgp_routing/README.md#security-poc) in each reference stack README.
+**Remove or harden PoC-only assets** (for example **echo VM** — optional **IAP SSH** instead of internet-wide SSH). See [Security (PoC)](cluster_ilb_routing/README.md#security-poc) and [Security (PoC)](cluster_bgp_routing/README.md#security-poc) in each reference stack README.
 
 **Secrets** (`OSDGOOGLE_TOKEN`, admin credentials, GCP keys) belong in **secret stores**, not in VCS.
 

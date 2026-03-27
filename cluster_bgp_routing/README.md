@@ -58,6 +58,7 @@ POD_IP="$(./scripts/cudn-pod-ip.sh -n cudn1 icanhazip-cudn)"
 gcloud compute ssh "$(terraform output -raw cluster_name)-echo-client" \
   --project="$(terraform output -raw gcp_project_id)" \
   --zone="$(terraform output -raw echo_client_vm_zone)" \
+  --tunnel-through-iap \
   --command="ping -c 3 ${POD_IP} && curl -sS --connect-timeout 5 --max-time 15 http://${POD_IP}/"
 ```
 
@@ -94,7 +95,7 @@ Details: [ILB-vs-BGP.md § Additional IAM Requirements](../ILB-vs-BGP.md#additio
 
 ## Variables and apply order
 
-- **Authoritative inputs:** [`variables.tf`](variables.tf), [`terraform.tfvars.example`](terraform.tfvars.example).
+- **Authoritative inputs:** [`variables.tf`](variables.tf), [`terraform.tfvars.example`](terraform.tfvars.example). **Firewall:** `worker_subnet_to_cudn_firewall_mode` (`all` \| **`e2etest`** \| `none`), `routing_worker_target_tags` (optional GCP network tags for router workers). **Cloud Router IPs:** `reserve_cloud_router_interface_ips` (default **true**). **Remote state:** [`backend.tf.example`](backend.tf.example), [docs/terraform-backend-gcs.md](../docs/terraform-backend-gcs.md).
 - **Minimum before apply:** set **`TF_VAR_gcp_project_id`** and **`TF_VAR_cluster_name`** (or **`terraform.tfvars`**) so they match **`wif_config`**. Use **`terraform.tfvars.example`** as a guide for additional variables (region, ASNs, BGP toggles, node counts, etc.).
 - **Flow:** WIF first (same **`cluster_name`** / **`gcp_project_id`** as this stack) → **first apply** with **`enable_bgp_routing = false`** → wait for **`*-worker-*`** VMs → **`canIpForward=true`** on those workers (**required** before NCC router-appliance spoke; see **`enable-worker-can-ip-forward.sh`**) → **second apply** with **`enable_bgp_routing = true`** (and optionally **`enable_echo_client_vm = true`**).
 - **Discovery:** **`scripts/discover-workers.sh`** returns **`name`**, **`selfLink`**, **`zone`**, **`networkIP`**. Terraform checks non-empty **`networkIP`** when BGP is enabled.
@@ -272,7 +273,7 @@ Then **`make wif.destroy`** from the repo root.
 
 ## Security (PoC)
 
-Echo VM SSH and PoC firewalls mirror the ILB module — restrict **`0.0.0.0/0`** or disable the echo VM outside labs. See [modules/osd-bgp-routing/README.md](../modules/osd-bgp-routing/README.md).
+Echo VM has **no public IP**; SSH is **`gcloud compute ssh --tunnel-through-iap`** (see [modules/osd-bgp-routing/README.md](../modules/osd-bgp-routing/README.md)). Other PoC firewalls still warrant review outside labs.
 
 ---
 

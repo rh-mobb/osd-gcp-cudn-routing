@@ -104,6 +104,9 @@ module "ilb_routing" {
   subnet_id    = "projects/${var.gcp_project_id}/regions/${var.gcp_region}/subnetworks/${module.osd_vpc.compute_subnet}"
   cudn_cidr    = var.cudn_cidr
 
+  worker_subnet_to_cudn_firewall_mode = var.worker_subnet_to_cudn_firewall_mode
+  routing_worker_target_tags          = var.routing_worker_target_tags
+
   router_instances = local.worker_instances
 
   enable_echo_client_vm       = var.enable_echo_client_vm

@@ -2,6 +2,8 @@
 
 Supplements the repo-wide [PRODUCTION.md](../PRODUCTION.md) (Kubernetes controller concept, shared gaps, operations). Read that first for **cross-cutting** automation and security expectations.
 
+For the **actionable checklist** with phased tasks, e2e test checkpoints, and priority ordering, see [**PRODUCTION-ROADMAP.md**](PRODUCTION-ROADMAP.md).
+
 For PoC limits in this stack, see [Known limitations](README.md#known-limitations) in [README.md](README.md). **IAM** for Terraform principals is summarized in [ILB-vs-BGP.md § Additional IAM requirements](../ILB-vs-BGP.md#additional-iam-requirements).
 
 ---

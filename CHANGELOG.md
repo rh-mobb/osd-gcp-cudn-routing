@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cloud Router interface IP reservations:** **`reserve_cloud_router_interface_ips`** (default **true**) in **`modules/osd-bgp-routing`** — two **`google_compute_address`** resources (INTERNAL **`GCE_ENDPOINT`**) so interface IPs are not taken by other GCE resources; wired from **`cluster_bgp_routing`**. New file **`router_interface_ips.tf`**. **`check`** **`router_interface_ips_in_worker_subnet`** validates IPs lie in the worker subnet CIDR.
+- **Terraform remote state:** [docs/terraform-backend-gcs.md](docs/terraform-backend-gcs.md); **`cluster_bgp_routing/backend.tf.example`**, **`cluster_ilb_routing/backend.tf.example`**; cross-links in [PRODUCTION.md](PRODUCTION.md), [README.md](README.md), cluster READMEs, **`terraform.tfvars.example`** files, and ILB/BGP module READMEs. [PRODUCTION-ROADMAP.md](cluster_bgp_routing/PRODUCTION-ROADMAP.md) Phase 1C / 1D / 1E items marked done.
+
+- **`cluster_bgp_routing/PRODUCTION-ROADMAP.md`** -- phased, checkboxed roadmap for BGP production readiness: safety/correctness (Phase 1), operational foundations (Phase 2), multi-CUDN and observability (Phase 3), architecture and scale (Phase 4); includes e2e test checkpoint guidance between phases. Linked from [cluster_bgp_routing/PRODUCTION.md](cluster_bgp_routing/PRODUCTION.md) and root [PRODUCTION.md](PRODUCTION.md).
+
+### Fixed
+
+- **`check` `router_interface_ips_in_worker_subnet`** in **`modules/osd-bgp-routing`** — avoid **`cidrcontains`** (Terraform **1.8+** only); use IPv4 **uint32** range comparison so older Terraform (**`make bgp-apply`**) works.
+
+- **`cluster_bgp_routing/variables.tf`** -- `router_interface_private_ips` description corrected from "same length as workers" to "exactly 2 elements" (matches module `check` block).
+
 ### Changed
+
+- **`hashicorp/google`** provider constraint is **`>= 5.0, < 8.0`** in **`modules/osd-bgp-routing`**, **`modules/osd-ilb-routing`**, **`cluster_ilb_routing`**, **`cluster_bgp_routing`**, and **`wif_config`** (replaces open-ended **`>= 5.0`**).
+
+- **Worker subnet → CUDN firewall:** new **`worker_subnet_to_cudn_firewall_mode`** (`all` \| **`e2etest`** default \| `none`) and **`routing_worker_target_tags`** (optional GCP **`target_tags`** for router/ILB workers) in **`modules/osd-bgp-routing`**, **`modules/osd-ilb-routing`**, and both **`cluster_*_routing/`** stacks. **`e2etest`** allows ICMP + TCP/80 for **`make *-e2e`**. BGP **`tcp/179`** rule uses tags when the list is non-empty (subnet `destination_ranges` when empty). Debug script tolerates missing CUDN firewall when **`none`**. [PRODUCTION-ROADMAP.md](cluster_bgp_routing/PRODUCTION-ROADMAP.md) § 1B updated. Existing state: resource address is now **`worker_subnet_to_cudn[0]`** — expect a one-time replace or run **`terraform state mv`** inside the module if you want to avoid recreation.
+
+- **Echo VM (`modules/osd-ilb-routing`, `modules/osd-bgp-routing`):** no public IP; SSH ingress limited to IAP TCP forwarding (**`35.235.240.0/20`**, **`gcloud compute ssh --tunnel-through-iap`**). Replaces **`0.0.0.0/0`** SSH. Output **`echo_client_vm_external_ip`** is always **`null`**. Terraform **`moved`** from **`google_compute_firewall.echo_client_ssh_public`** to **`echo_client_ssh_iap`** (same GCP rule name **`*-echo-client-ssh`**). **`scripts/e2e-cudn-connectivity.sh`**, cluster READMEs, [PRODUCTION.md](PRODUCTION.md), and [PRODUCTION-ROADMAP.md](cluster_bgp_routing/PRODUCTION-ROADMAP.md) § Phase 1A updated.
 
 - **`deploy-cudn-test-pods.sh`** — single implementation under [`scripts/deploy-cudn-test-pods.sh`](scripts/deploy-cudn-test-pods.sh); **`cluster_ilb_routing/scripts/`** and **`cluster_bgp_routing/scripts/`** wrappers **`exec`** the shared script.
 - **Docs:** root [README.md](README.md) **§ Shared prerequisites** — minimum **`TF_VAR_gcp_project_id`** / **`TF_VAR_cluster_name`** (or **`terraform.tfvars`** from **`terraform.tfvars.example`**) before apply; cluster **§ Variables and apply order** repeats this + **`.example`** for other settings. **Quick start** / **One-shot** flow (**`make ilb-e2e`** / **`make bgp-e2e`**, teardown, etc.) unchanged aside from cross-links.

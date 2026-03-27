@@ -43,7 +43,7 @@ Terraform arguments: pass through **`make ilb-apply`** / **`make bgp-apply`** as
 | Script | Purpose |
 |--------|---------|
 | [`deploy-cudn-test-pods.sh`](deploy-cudn-test-pods.sh) | **`netshoot-cudn`** + **`icanhazip-cudn`**; **`oc wait`** for Ready. Used by the cluster **`./scripts/deploy-cudn-test-pods.sh`** wrappers and by **`e2e-cudn-connectivity.sh`**. |
-| [`e2e-cudn-connectivity.sh`](e2e-cudn-connectivity.sh) | Runs **`deploy-cudn-test-pods.sh`**, then **pod → echo VM** (`ping`, `curl` with body = netshoot CUDN IP) and **echo VM → pod** (`ping`, `curl` **`icanhazip`** with body = VM IP). Prefer **`make ilb-e2e`** / **`make bgp-e2e`** from the repo root, or **`--cluster-dir`**. Requires **`gcloud`**, **`jq`**, **`terraform`** outputs **`echo_client_*`**. **Env:** **`NO_COLOR=1`** disables colors; **`FORCE_COLOR=1`** forces colors if stderr is not a TTY. |
+| [`e2e-cudn-connectivity.sh`](e2e-cudn-connectivity.sh) | Runs **`deploy-cudn-test-pods.sh`**, then **pod → echo VM** (`ping`, `curl` with body = netshoot CUDN IP) and **echo VM → pod** (`ping`, `curl` **`icanhazip`** with body = VM IP). Echo VM SSH uses **`gcloud compute ssh --tunnel-through-iap`** (IAP API + **`iap.tunnelInstances.accessViaIAP`** / **IAP-secured Tunnel User** on the caller). Prefer **`make ilb-e2e`** / **`make bgp-e2e`** from the repo root, or **`--cluster-dir`**. Requires **`gcloud`**, **`jq`**, **`terraform`** outputs **`echo_client_*`**. **Env:** **`NO_COLOR=1`** disables colors; **`FORCE_COLOR=1`** forces colors if stderr is not a TTY. |
 
 ## Related scripts
 

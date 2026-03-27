@@ -46,8 +46,8 @@ output "echo_client_vm_internal_ip" {
 }
 
 output "echo_client_vm_external_ip" {
-  description = "Ephemeral external IPv4 of the echo VM (null when enable_echo_client_vm is false)"
-  value       = var.enable_echo_client_vm ? google_compute_instance.echo_client[0].network_interface[0].access_config[0].nat_ip : null
+  description = "Always null: echo VM has no external IP; use gcloud compute ssh --tunnel-through-iap (null when enable_echo_client_vm is false)"
+  value       = null
 }
 
 output "echo_client_vm_zone" {

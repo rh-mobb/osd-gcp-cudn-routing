@@ -259,9 +259,11 @@ pass "Pod → echo VM HTTP: reflected IP matches netshoot CUDN address"
 
 title "3/3 Echo VM → pod (ping + curl)"
 vm_ssh() {
+  # Echo VM has no public IP; SSH uses IAP TCP forwarding (firewall allows 35.235.240.0/20).
   verbose_run gcloud compute ssh "${CLUSTER_NAME}-echo-client" \
     --project="$GCP_PROJECT" \
     --zone="$VM_ZONE" \
+    --tunnel-through-iap \
     --command="$1"
 }
 

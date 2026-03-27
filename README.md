@@ -44,7 +44,7 @@ export TF_VAR_gcp_project_id="my-gcp-project"
 export TF_VAR_cluster_name="my-cluster-name"
 ```
 
-Alternatively, copy **`cluster_ilb_routing/terraform.tfvars.example`** or **`cluster_bgp_routing/terraform.tfvars.example`** to **`terraform.tfvars`** in that directory and set **`gcp_project_id`** / **`cluster_name`** there (plus any other variables you need). Use the **`.example`** file as the checklist for optional settings (region, node counts, feature flags, etc.).
+Alternatively, copy **`cluster_ilb_routing/terraform.tfvars.example`** or **`cluster_bgp_routing/terraform.tfvars.example`** to **`terraform.tfvars`** in that directory and set **`gcp_project_id`** / **`cluster_name`** there (plus any other variables you need). Use the **`.example`** file as the checklist for optional settings (region, node counts, feature flags, etc.). **Remote state:** [docs/terraform-backend-gcs.md](docs/terraform-backend-gcs.md) and **`backend.tf.example`** in each cluster directory.
 
 **BGP only:** extra IAM for NCC / Cloud Router on the identity running `terraform apply` — [ILB-vs-BGP.md § IAM](ILB-vs-BGP.md#additional-iam-requirements).
 

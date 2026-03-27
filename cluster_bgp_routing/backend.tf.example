@@ -1,0 +1,11 @@
+# Copy to backend.tf (or merge into your root terraform {} block), set bucket/prefix, then:
+#   terraform init -migrate-state
+#
+# Guide: ../../docs/terraform-backend-gcs.md
+
+# terraform {
+#   backend "gcs" {
+#     bucket = "YOUR_PROJECT-osd-cudn-tfstate"
+#     prefix = "environments/dev/bgp/CLUSTER_NAME"
+#   }
+# }

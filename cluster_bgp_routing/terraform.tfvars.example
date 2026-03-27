@@ -8,6 +8,9 @@
 # Name of the OSD cluster (must match terraform/wif_config cluster_name). Set via TF_VAR_cluster_name or uncomment:
 #cluster_name = "my-bgp-cluster"
 
+# Remote Terraform state (recommended outside a single-user lab): see ../docs/terraform-backend-gcs.md
+# and backend.tf.example in this directory (copy to backend.tf, terraform init -migrate-state).
+
 # OpenShift version (x.y.z)
 openshift_version = "4.21.3"
 
@@ -29,6 +32,12 @@ gcp_region = "us-central1"
 # CUDN CIDR advertised via BGP
 # cudn_cidr = "10.100.0.0/16"
 
+# Worker subnet → CUDN firewall: all | e2etest (default, icmp + tcp/80) | none
+# worker_subnet_to_cudn_firewall_mode = "e2etest"
+
+# Optional: network tags on router workers to scope worker→CUDN + BGP:179 rules (empty = all instances)
+# routing_worker_target_tags = ["my-cluster-bgp-router"]
+
 # BGP / NCC / Cloud Router. Leave false for the first apply; set true after workers exist.
 # enable_bgp_routing = false
 
@@ -39,6 +48,9 @@ gcp_region = "us-central1"
 # Cloud Router interface IPs in the worker subnet (optional). If null, derived from subnet CIDR + offset.
 # router_interface_private_ips = null
 # bgp_interface_host_offset = 230
+
+# Reserve interface IPs with google_compute_address (default true). Set false for some brownfield upgrades.
+# reserve_cloud_router_interface_ips = true
 
 # NCC router appliance spoke
 # ncc_spoke_site_to_site_data_transfer = false

@@ -32,10 +32,45 @@ data "google_compute_subnetwork" "worker" {
   project = local.worker_subnet.project
 }
 
+# IPv4-only containment without cidrcontains (Terraform 1.8+): uint32 range vs worker subnet primary CIDR.
+locals {
+  worker_subnet_v4 = regex("^([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})/([0-9]{1,2})$", data.google_compute_subnetwork.worker.ip_cidr_range)
+
+  worker_subnet_v4_prefix_len = parseint(local.worker_subnet_v4[4], 10)
+
+  worker_subnet_v4_net_u32 = (
+    parseint(local.worker_subnet_v4[0], 10) * 16777216
+    + parseint(local.worker_subnet_v4[1], 10) * 65536
+    + parseint(local.worker_subnet_v4[2], 10) * 256
+    + parseint(local.worker_subnet_v4[3], 10)
+  )
+
+  worker_subnet_v4_size = pow(2, 32 - local.worker_subnet_v4_prefix_len)
+
+  router_private_ip_v4_u32 = [
+    for ip in local.router_private_ips : (
+      parseint(regex("^([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})$", ip)[0], 10) * 16777216
+      + parseint(regex("^([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})$", ip)[1], 10) * 65536
+      + parseint(regex("^([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})$", ip)[2], 10) * 256
+      + parseint(regex("^([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})$", ip)[3], 10)
+    )
+  ]
+}
+
 check "router_interface_ip_count" {
   assert {
     condition     = var.router_interface_private_ips == null || length(var.router_interface_private_ips) == 2
     error_message = "router_interface_private_ips must be null or have exactly 2 elements (one per Cloud Router interface)."
+  }
+}
+
+check "router_interface_ips_in_worker_subnet" {
+  assert {
+    condition = alltrue([
+      for u32 in local.router_private_ip_v4_u32 :
+      u32 >= local.worker_subnet_v4_net_u32 && u32 < local.worker_subnet_v4_net_u32 + local.worker_subnet_v4_size
+    ])
+    error_message = "Each Cloud Router interface IP must fall within the worker subnetwork primary IPv4 CIDR (see subnet data source and bgp_interface_host_offset or router_interface_private_ips)."
   }
 }
 
@@ -87,7 +122,7 @@ resource "google_compute_router_interface" "primary" {
   router  = google_compute_router.cudn.name
 
   subnetwork         = var.subnet_id
-  private_ip_address = local.router_private_ips[0]
+  private_ip_address = local.cloud_router_interface_ip_primary
 }
 
 resource "google_compute_router_interface" "redundant" {
@@ -97,7 +132,7 @@ resource "google_compute_router_interface" "redundant" {
   router  = google_compute_router.cudn.name
 
   subnetwork          = var.subnet_id
-  private_ip_address  = local.router_private_ips[1]
+  private_ip_address  = local.cloud_router_interface_ip_redundant
   redundant_interface = google_compute_router_interface.primary.name
 }
 

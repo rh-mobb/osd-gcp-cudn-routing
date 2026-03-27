@@ -59,6 +59,23 @@ variable "cudn_cidr" {
   description = "CUDN CIDR to route through the ILB to worker nodes"
 }
 
+variable "worker_subnet_to_cudn_firewall_mode" {
+  type        = string
+  default     = "e2etest"
+  description = "Worker subnet → CUDN firewall: all | e2etest (default) | none. Passed to osd-ilb-routing."
+
+  validation {
+    condition     = contains(["all", "e2etest", "none"], var.worker_subnet_to_cudn_firewall_mode)
+    error_message = "worker_subnet_to_cudn_firewall_mode must be all, e2etest, or none."
+  }
+}
+
+variable "routing_worker_target_tags" {
+  type        = list(string)
+  default     = []
+  description = "Optional network tags to scope worker→CUDN firewall to ILB backend workers. Empty = subnet-wide (lab default)."
+}
+
 variable "enable_ilb_routing" {
   type        = bool
   default     = false

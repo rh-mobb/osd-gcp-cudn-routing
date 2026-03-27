@@ -29,6 +29,32 @@ variable "cudn_cidr" {
   description = "CUDN prefix to route through the ILB to worker nodes"
 }
 
+variable "worker_subnet_to_cudn_firewall_mode" {
+  type        = string
+  default     = "e2etest"
+  description = <<-EOT
+    Ingress firewall for traffic from the worker subnet to CUDN CIDR.
+    - all: allow all protocols (broadest; closer to former PoC default).
+    - e2etest: ICMP plus TCP/80 only (enough for make *-e2e: ping + icanhazip HTTP on pods).
+    - none: do not create this rule (supply your own firewall policy).
+  EOT
+
+  validation {
+    condition     = contains(["all", "e2etest", "none"], var.worker_subnet_to_cudn_firewall_mode)
+    error_message = "worker_subnet_to_cudn_firewall_mode must be all, e2etest, or none."
+  }
+}
+
+variable "routing_worker_target_tags" {
+  type        = list(string)
+  default     = []
+  description = <<-EOT
+    If non-empty, restrict the worker-subnet→CUDN firewall rule to instances with these network tags.
+    Use for ILB backend / routing workers per GCP practice. Empty = all instances that match
+    source/destination ranges (reference default).
+  EOT
+}
+
 variable "router_instances" {
   type = list(object({
     self_link = string

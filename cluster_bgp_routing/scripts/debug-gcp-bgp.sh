@@ -94,8 +94,12 @@ gcloud compute firewall-rules describe "$FW_BGP" \
   --format="yaml(name,direction,sourceRanges,destinationRanges,allowed,priority,disabled)"
 
 section "Firewall: $FW_CUDN"
-gcloud compute firewall-rules describe "$FW_CUDN" \
+if gcloud compute firewall-rules describe "$FW_CUDN" \
   --project="$GCP_PROJECT" \
-  --format="yaml(name,direction,sourceRanges,destinationRanges,allowed,priority,disabled)"
+  --format="yaml(name,direction,sourceRanges,destinationRanges,allowed,priority,disabled,targetTags)" 2>/dev/null; then
+  :
+else
+  echo "(rule not found — e.g. worker_subnet_to_cudn_firewall_mode=none or renamed)"
+fi
 
 section "Done"

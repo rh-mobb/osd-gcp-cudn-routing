@@ -16,23 +16,54 @@ data "google_compute_subnetwork" "worker" {
   project = local.worker_subnet.project
 }
 
+locals {
+  ilb_routing_firewall_target_tags = length(var.routing_worker_target_tags) > 0 ? var.routing_worker_target_tags : null
+
+  worker_subnet_to_cudn_desc = (
+    var.worker_subnet_to_cudn_firewall_mode == "none" ? "disabled" :
+    var.worker_subnet_to_cudn_firewall_mode == "all" ? "All protocols: worker subnet to CUDN via ILB path" :
+    "E2E-minimal: ICMP + TCP/80 from worker subnet to CUDN (use mode=all for production traffic)"
+  )
+}
+
 # Allow traffic from the worker/compute subnet to addresses in the CUDN range.
 # Packets bound for 10.100.x.x are routed via the ILB and land on worker NICs
 # with canIpForward; without this rule, osd-vpc's cluster_internal firewall
 # (source + dest in master/worker CIDRs only) does not match dest = CUDN.
 resource "google_compute_firewall" "worker_subnet_to_cudn" {
+  count = var.worker_subnet_to_cudn_firewall_mode == "none" ? 0 : 1
+
   project     = var.project_id
   name        = "${var.cluster_name}-worker-subnet-to-cudn"
   network     = var.vpc_id
   direction   = "INGRESS"
   priority    = 900
-  description = "All protocols: worker subnet (e.g. echo VM) to CUDN via ILB path"
+  description = local.worker_subnet_to_cudn_desc
 
   source_ranges      = [data.google_compute_subnetwork.worker.ip_cidr_range]
   destination_ranges = [var.cudn_cidr]
+  target_tags        = local.ilb_routing_firewall_target_tags
 
-  allow {
-    protocol = "all"
+  dynamic "allow" {
+    for_each = var.worker_subnet_to_cudn_firewall_mode == "all" ? [1] : []
+    content {
+      protocol = "all"
+    }
+  }
+
+  dynamic "allow" {
+    for_each = var.worker_subnet_to_cudn_firewall_mode == "e2etest" ? [1] : []
+    content {
+      protocol = "icmp"
+    }
+  }
+
+  dynamic "allow" {
+    for_each = var.worker_subnet_to_cudn_firewall_mode == "e2etest" ? [1] : []
+    content {
+      protocol = "tcp"
+      ports    = ["80"]
+    }
   }
 }
 

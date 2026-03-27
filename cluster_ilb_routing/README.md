@@ -57,6 +57,7 @@ POD_IP="$(./scripts/cudn-pod-ip.sh -n cudn1 icanhazip-cudn)"
 gcloud compute ssh "$(terraform output -raw cluster_name)-echo-client" \
   --project="$(terraform output -raw gcp_project_id)" \
   --zone="$(terraform output -raw echo_client_vm_zone)" \
+  --tunnel-through-iap \
   --command="ping -c 3 ${POD_IP} && curl -sS --connect-timeout 5 --max-time 15 http://${POD_IP}/"
 ```
 
@@ -146,7 +147,7 @@ This design is **not** GKE VPC-native pod CIDRs. It **is** similar to common **i
 
 ## Variables and apply order
 
-- **Authoritative inputs:** [`variables.tf`](variables.tf), [`terraform.tfvars.example`](terraform.tfvars.example).
+- **Authoritative inputs:** [`variables.tf`](variables.tf), [`terraform.tfvars.example`](terraform.tfvars.example). **Firewall:** `worker_subnet_to_cudn_firewall_mode` (`all` \| **`e2etest`** \| `none`), `routing_worker_target_tags` (optional tags on ILB backend workers). **Remote state:** [`backend.tf.example`](backend.tf.example), [docs/terraform-backend-gcs.md](../docs/terraform-backend-gcs.md).
 - **Minimum before apply:** set **`TF_VAR_gcp_project_id`** and **`TF_VAR_cluster_name`** in the environment (or uncomment / set the same in **`terraform.tfvars`**). Values must match **`wif_config`**. Review **`terraform.tfvars.example`** for other knobs (region, node count, routing flags, etc.).
 - **Flow:** WIF first → **first apply** here with `enable_ilb_routing = false` (VPC + cluster only) → wait for **`*-worker-*`** VMs → **second apply** with `enable_ilb_routing = true` (and optionally `enable_echo_client_vm = true`).
 
@@ -319,7 +320,7 @@ Then destroy WIF from repo root: **`make wif.destroy`**.
 
 ## Security (PoC)
 
-Echo VM can expose **SSH from `0.0.0.0/0`** when enabled — restrict or disable **`enable_echo_client_vm`** for anything beyond a lab. Store **`OSDGOOGLE_TOKEN`**, **`admin_password`**, and GCP keys outside VCS (Secret Manager / CI secrets).
+Echo VM has **no public IP**; SSH uses **`gcloud compute ssh --tunnel-through-iap`** with a firewall rule for IAP’s **`35.235.240.0/20`** range on port 22. Enable the **Identity-Aware Proxy API** and grant callers **`iap.tunnelInstances.accessViaIAP`** (or **IAP-secured Tunnel User**). Disable **`enable_echo_client_vm`** outside labs if you do not need the probe VM. Store **`OSDGOOGLE_TOKEN`**, **`admin_password`**, and GCP keys outside VCS (Secret Manager / CI secrets).
 
 ---
 
