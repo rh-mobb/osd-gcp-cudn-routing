@@ -36,7 +36,7 @@ Replace **`?ref=main`** with a **tag** (e.g. `?ref=v0.1.0`) or **SHA** before re
 - `google_compute_region_backend_service` -- Internal passthrough NLB backend (backends use `CONNECTION` balancing; required for `INTERNAL` scheme)
 - `google_compute_forwarding_rule` -- ILB frontend
 - `google_compute_route` -- VPC route sending CUDN CIDR to the ILB
-- `google_compute_firewall` -- **`${cluster_name}-worker-subnet-to-cudn`** — **`worker_subnet_to_cudn_firewall_mode`** (**`e2etest`**: ICMP + TCP/80, **`all`**, **`none`**); optional **`routing_worker_target_tags`** (worker subnet → **`cudn_cidr`**)
+- `google_compute_firewall` -- **`${cluster_name}-worker-subnet-to-cudn`** — **`worker_subnet_to_cudn_firewall_mode`** (**`e2etest`**: ICMP + TCP/8080, **`all`**, **`none`**); optional **`routing_worker_target_tags`** (worker subnet → **`cudn_cidr`**)
 - `google_compute_firewall` -- Allows GCP health check probes
 - (Optional) `google_compute_instance` -- Echo VM running [icanhazip-clone](https://hub.docker.com/r/thejordanprice/icanhazip-clone) for CUDN-to-VM direct IP verification
 - (Optional) `google_compute_firewall` -- Allows all protocols from CUDN CIDR to the echo VM

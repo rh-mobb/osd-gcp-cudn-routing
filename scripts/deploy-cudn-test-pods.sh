@@ -73,8 +73,12 @@ spec:
   containers:
   - name: icanhazip
     image: docker.io/thejordanprice/icanhazip-clone:latest
+    # Upstream CMD runs app.py with port=80 baked in; use Flask CLI instead (no image fork).
+    workingDir: /app
+    env:
+    command: ["/bin/sh", "-c", "exec python -m flask run --host=0.0.0.0 --port=8080"]
     ports:
-    - containerPort: 80
+    - containerPort: 8080
   restartPolicy: Never
 EOF
 

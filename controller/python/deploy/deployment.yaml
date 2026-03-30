@@ -18,7 +18,8 @@ spec:
       serviceAccountName: bgp-routing-controller
       containers:
         - name: controller
-          image: bgp-routing-controller:latest
+          # Same namespace ImageStream (after oc start-build --from-dir).
+          image: image-registry.openshift-image-registry.svc:5000/bgp-routing-system/bgp-routing-controller:latest
           envFrom:
             - configMapRef:
                 name: bgp-routing-controller

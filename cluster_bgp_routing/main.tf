@@ -63,6 +63,10 @@ module "bgp_routing" {
 
   count = var.enable_bgp_routing ? 1 : 0
 
+  # Subnet is created in module.osd_vpc; data.google_compute_subnetwork.worker reads GCP during
+  # apply — without this, first plan/apply fails with "subnetwork not found".
+  depends_on = [module.osd_vpc]
+
   project_id   = var.gcp_project_id
   region       = var.gcp_region
   cluster_name = var.cluster_name

@@ -3,6 +3,8 @@ kind: Kustomization
 namespace: bgp-routing-system
 resources:
   - namespace.yaml
+  - imagestream.yaml
+  - buildconfig.yaml
   - rbac.yaml
   - configmap.yaml
   - deployment.yaml

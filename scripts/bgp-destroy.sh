@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Tear down cluster_bgp_routing then wif_config (same order as README).
+# If you used the BGP controller, run `make controller.cleanup` from the repo
+# root first — otherwise Cloud Router peers / NCC spoke can block instance delete.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -9,11 +11,6 @@ CLUSTER_DIR="${ROOT}/cluster_bgp_routing"
 command -v terraform >/dev/null 2>&1 || {
   echo "Error: terraform not found on PATH." >&2
   exit 1
-}
-
-echo "=== Clean up controller-managed resources (BGP peers, NCC spoke, FRR CRs) ==="
-make -C "${ROOT}/controller/python" cleanup || {
-  echo "WARNING: controller cleanup failed — GCP resources may need manual removal before instances can be deleted." >&2
 }
 
 echo "=== Destroy cluster stack (${CLUSTER_DIR}) ==="

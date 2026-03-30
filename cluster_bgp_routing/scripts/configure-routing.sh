@@ -15,7 +15,7 @@ set -euo pipefail
 # applies CUDN / RouteAdvertisements so FRRConfiguration CRs (controller-managed)
 # are reconciled and route advertisement can work.
 #
-# Run from cluster_bgp_routing/ so terraform output works.
+# Run from anywhere; only `oc` is required on PATH.
 #
 # This script:
 #   - Enables FRR + route advertisements (oc patch)

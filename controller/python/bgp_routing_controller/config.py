@@ -18,7 +18,7 @@ class ControllerConfig:
 
     ncc_spoke_site_to_site: bool = False
 
-    node_label_key: str = "node-role.kubernetes.io/infra"
+    node_label_key: str = "node-role.kubernetes.io/worker"
     node_label_value: str = ""
 
     frr_namespace: str = "openshift-frr-k8s"
@@ -50,7 +50,7 @@ class ControllerConfig:
                 "NCC_SPOKE_SITE_TO_SITE", "false"
             ).lower() in ("true", "1", "yes"),
             node_label_key=os.environ.get(
-                "NODE_LABEL_KEY", "node-role.kubernetes.io/infra"
+                "NODE_LABEL_KEY", "node-role.kubernetes.io/worker"
             ),
             node_label_value=os.environ.get("NODE_LABEL_VALUE", ""),
             frr_namespace=os.environ.get("FRR_NAMESPACE", "openshift-frr-k8s"),

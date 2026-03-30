@@ -21,8 +21,9 @@ data:
   NCC_SPOKE_SITE_TO_SITE: "false"
 
   # Node label selector — which nodes act as BGP router appliances
-  # Default: OSD infra nodes. Override for a dedicated router MachinePool.
-  NODE_LABEL_KEY: "node-role.kubernetes.io/infra"
+  # Default: OSD worker nodes (CUDN routes are injected where CUDN pods run).
+  # Override for a dedicated routing MachinePool (e.g. node-role.kubernetes.io/router).
+  NODE_LABEL_KEY: "node-role.kubernetes.io/worker"
   NODE_LABEL_VALUE: ""
 
   # Reconciliation tuning

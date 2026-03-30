@@ -1,0 +1,23 @@
+# Binary + Docker: run from controller/python/ after apply:
+#   oc start-build bgp-routing-controller -n bgp-routing-system --from-dir=. --follow
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: bgp-routing-controller
+  namespace: bgp-routing-system
+  labels:
+    app.kubernetes.io/name: bgp-routing-controller
+spec:
+  source:
+    type: Binary
+    binary: {}
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: bgp-routing-controller:latest
+  # Avoid a failing build on apply before --from-dir uploads context.
+  triggers: []

@@ -35,7 +35,7 @@ variable "worker_subnet_to_cudn_firewall_mode" {
   description = <<-EOT
     Ingress firewall for traffic from the worker subnet to CUDN CIDR.
     - all: allow all protocols (broadest; closer to former PoC default).
-    - e2etest: ICMP plus TCP/80 only (enough for make *-e2e: ping + icanhazip HTTP on pods).
+    - e2etest: ICMP plus TCP/8080 only (enough for make *-e2e: ping + icanhazip HTTP on pods; same port as echo VM host listener).
     - none: do not create this rule (supply your own firewall policy).
   EOT
 

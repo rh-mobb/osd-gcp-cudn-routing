@@ -273,8 +273,8 @@ echo '+ ping -c 3 ${ICAN_CUDN_IP}'
 ping -c 3 ${ICAN_CUDN_IP}
 body=""
 for i in 1 2 3 4 5; do
-  echo '+ curl -sS --connect-timeout 5 --max-time 15 http://${ICAN_CUDN_IP}/'
-  if body=\$(curl -sS --connect-timeout 5 --max-time 15 http://${ICAN_CUDN_IP}/) && [ "\$body" = "${ECHO_IP}" ]; then
+  echo '+ curl -sS --connect-timeout 5 --max-time 15 http://${ICAN_CUDN_IP}:8080/'
+  if body=\$(curl -sS --connect-timeout 5 --max-time 15 http://${ICAN_CUDN_IP}:8080/) && [ "\$body" = "${ECHO_IP}" ]; then
     echo "echo VM -> pod curl response (expected caller IP ${ECHO_IP}): \$body"
     exit 0
   fi

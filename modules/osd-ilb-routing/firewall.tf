@@ -22,7 +22,7 @@ locals {
   worker_subnet_to_cudn_desc = (
     var.worker_subnet_to_cudn_firewall_mode == "none" ? "disabled" :
     var.worker_subnet_to_cudn_firewall_mode == "all" ? "All protocols: worker subnet to CUDN via ILB path" :
-    "E2E-minimal: ICMP + TCP/80 from worker subnet to CUDN (use mode=all for production traffic)"
+    "E2E-minimal: ICMP + TCP/8080 from worker subnet to CUDN (icanhazip test pods; use mode=all for production traffic)"
   )
 }
 
@@ -62,7 +62,7 @@ resource "google_compute_firewall" "worker_subnet_to_cudn" {
     for_each = var.worker_subnet_to_cudn_firewall_mode == "e2etest" ? [1] : []
     content {
       protocol = "tcp"
-      ports    = ["80"]
+      ports    = ["8080"]
     }
   }
 }

@@ -1,6 +1,6 @@
 # BGP Routing Controller (Python / kopf)
 
-Watches Kubernetes **Node** objects and automatically reconciles the GCP and OpenShift resources that make BGP-based CUDN routing work. When an infra (or router-pool) node is **added, replaced, or removed**, the controller:
+Watches Kubernetes **Node** objects and automatically reconciles the GCP and OpenShift resources that make BGP-based CUDN routing work. When a worker (or router-pool) node is **added, replaced, or removed**, the controller:
 
 1. Enables **`canIpForward`** on the backing GCE instance
 2. Creates or updates the **NCC Router Appliance spoke** to list exactly the current set of router nodes
@@ -87,7 +87,7 @@ All configuration is via environment variables (see `deploy/configmap.yaml`):
 | `NCC_SPOKE_NAME` | yes | | NCC spoke name (Terraform output `ncc_spoke_name`) |
 | `FRR_ASN` | | `65003` | FRR ASN (must match Terraform `frr_asn`) |
 | `NCC_SPOKE_SITE_TO_SITE` | | `false` | site_to_site_data_transfer on the NCC spoke |
-| `NODE_LABEL_KEY` | | `node-role.kubernetes.io/infra` | Label key to select router nodes |
+| `NODE_LABEL_KEY` | | `node-role.kubernetes.io/worker` | Label key to select router nodes (must match nodes where OVN-K injects CUDN routes) |
 | `NODE_LABEL_VALUE` | | _(empty = key-exists)_ | Label value (empty matches any value) |
 | `RECONCILE_INTERVAL_SECONDS` | | `60` | Periodic drift reconciliation interval |
 | `DEBOUNCE_SECONDS` | | `5` | Minimum time between event-driven reconciliations |
@@ -160,18 +160,40 @@ python -m bgp_routing_controller --cleanup
 | `make run` | One-shot reconciliation and exit |
 | `make watch` | Long-lived operator (kopf event loop) |
 | `make cleanup` | Delete all controller-managed resources |
-| `make build` | Build container image with podman |
+| `make build` | Build container image with podman (local tag only) |
+| `make deploy-openshift` | `oc apply -k deploy/` + binary `BuildConfig` + wait for rollout (OpenShift) |
 | `make lint` | Compile-check all Python modules |
 | `make clean` | Remove virtualenv and `__pycache__` |
 
 ## Build and deploy
 
-```bash
-# Build container (from controller/python/)
-make build
-# or: podman build -t bgp-routing-controller:latest .
+Manifests live under `deploy/` (kustomize). They target **OpenShift** (`ImageStream`, `BuildConfig`, `Deployment` pulling the cluster internal registry).
 
-# Edit deploy/configmap.yaml with your cluster values, then:
+1. **Config and credentials**
+   - Edit `deploy/configmap.yaml` with Terraform outputs (`GCP_PROJECT`, `CLOUD_ROUTER_NAME`, …).
+   - Ensure namespace `bgp-routing-system` exists and the WIF GCP credential secret exists (see [§ WIF credential setup](#wif-credential-setup)).
+
+2. **Build in-cluster and run from the internal registry (recommended on OpenShift)**
+
+From `controller/python/` (so the Docker build context includes the `Dockerfile` and source):
+
+```bash
+make deploy-openshift
+# Same as:
+#   oc apply -k deploy/
+#   oc start-build bgp-routing-controller -n bgp-routing-system --from-dir=. --follow
+#   oc rollout status deployment/bgp-routing-controller -n bgp-routing-system --timeout=180s
+```
+
+Override namespace with `NS=my-namespace make deploy-openshift`.
+
+The `BuildConfig` uses **Binary** source and **`triggers: []`**, so nothing uploads until you run `oc start-build … --from-dir=.`. The `Deployment` image is `image-registry.openshift-image-registry.svc:5000/bgp-routing-system/bgp-routing-controller:latest` — expect **`ImagePullBackOff` until the first build finishes**.
+
+3. **Local image only (podman / external registry)**
+
+```bash
+make build
+# Push to your registry and change the Deployment image, or use ImageStream import — then:
 kubectl apply -k deploy/
 ```
 

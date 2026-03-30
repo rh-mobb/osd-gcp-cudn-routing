@@ -7,7 +7,7 @@
 | [`ilb-apply.sh`](ilb-apply.sh) | WIF apply → `cluster_ilb_routing` pass 1 → wait for workers → pass 2 (ILB + echo VM) → `oc login` → `cluster_ilb_routing/scripts/configure-routing.sh`. Invoked by **`make ilb-apply`**. |
 | [`ilb-destroy.sh`](ilb-destroy.sh) | `terraform destroy` in `cluster_ilb_routing/`, then `wif_config/`. Invoked by **`make ilb-destroy`**. |
 | [`bgp-apply.sh`](bgp-apply.sh) | WIF apply → `cluster_bgp_routing` single apply (static infra + echo VM) → `oc login` → `configure-routing.sh` (one-time setup). Dynamic resources (NCC spoke, BGP peers, canIpForward, FRRConfiguration) are managed by the controller. Invoked by **`make bgp-apply`**. |
-| [`bgp-destroy.sh`](bgp-destroy.sh) | Destroy **`cluster_bgp_routing/`** then **`wif_config/`**. Invoked by **`make bgp-destroy`**. |
+| [`bgp-destroy.sh`](bgp-destroy.sh) | Destroy **`cluster_bgp_routing/`** then **`wif_config/`**. Invoked by **`make bgp-destroy`**. Run **`make controller.cleanup`** first if the BGP controller created peers / spoke / FRR CRs. |
 | **`make ilb-e2e`** / **`make bgp-e2e`** | Run [`e2e-cudn-connectivity.sh`](e2e-cudn-connectivity.sh) with **`-C cluster_ilb_routing/`** or **`-C cluster_bgp_routing/`** (from repo root). After **`make ilb-apply`** / **`make bgp-apply`**, with **`oc`** and **`gcloud`** working. |
 
 ### Environment variables

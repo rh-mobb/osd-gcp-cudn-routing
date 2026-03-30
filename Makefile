@@ -34,14 +34,15 @@ help:
 	@echo "  ilb-destroy   terraform destroy $(CLUSTER_DIR)/ then $(WIF_DIR)/ (-auto-approve)"
 	@echo "  ilb-e2e       CUDN pod ↔ echo VM checks ($(CLUSTER_DIR)/; requires oc + gcloud logged in)"
 	@echo "  bgp-apply     full deploy: WIF, cluster pass1, wait workers, pass2 BGP+NCC+echo VM, oc login, cluster_bgp_routing configure-routing.sh"
-	@echo "  bgp-destroy   terraform destroy $(CLUSTER_BGP_DIR)/ then $(WIF_DIR)/ (-auto-approve)"
+	@echo "  bgp-destroy   terraform destroy $(CLUSTER_BGP_DIR)/ then $(WIF_DIR)/ (-auto-approve); run controller.cleanup first if you used the controller"
 	@echo "  bgp-e2e       CUDN pod ↔ echo VM checks ($(CLUSTER_BGP_DIR)/; requires oc + gcloud logged in)"
 	@echo ""
 	@echo "  controller.venv      Create Python venv for the BGP routing controller"
 	@echo "  controller.run       One-shot reconciliation (reads terraform output)"
 	@echo "  controller.watch     Run the long-lived operator (kopf event loop)"
 	@echo "  controller.cleanup   Delete all controller-managed resources (peers, spoke, FRR)"
-	@echo "  controller.build     Build the controller container image"
+	@echo "  controller.build     Build the controller container image (podman, local)"
+	@echo "  controller.deploy-openshift  Apply deploy/ + BuildConfig binary build + rollout"
 	@echo ""
 	@echo "  wif.init      terraform init -upgrade in $(WIF_DIR)/"
 	@echo "  wif.plan      terraform plan in $(WIF_DIR)/"
@@ -55,7 +56,6 @@ help:
 	@echo "  bgp.init      terraform init -upgrade in $(CLUSTER_BGP_DIR)/"
 	@echo "  bgp.plan      terraform plan in $(CLUSTER_BGP_DIR)/"
 	@echo "  bgp.apply     terraform apply in $(CLUSTER_BGP_DIR)/"
-	@echo "  bgp.destroy   terraform destroy in $(CLUSTER_BGP_DIR)/"
 	@echo "  fmt           terraform fmt -recursive"
 	@echo "  validate      terraform validate ($(WIF_DIR)/, modules, $(CLUSTER_DIR)/, $(CLUSTER_BGP_DIR)/)"
 	@echo "  clean         remove .terraform/ and lock files under repo"
@@ -114,7 +114,7 @@ apply: init
 destroy: init
 	@cd $(CLUSTER_DIR) && terraform destroy $(TF_VARS) $(EXTRA_TF_VARS)
 
-.PHONY: bgp.init bgp.plan bgp.apply bgp.destroy
+.PHONY: bgp.init bgp.plan bgp.apply
 bgp.init:
 	@cd $(CLUSTER_BGP_DIR) && terraform init -upgrade
 
@@ -124,10 +124,7 @@ bgp.plan: bgp.init
 bgp.apply: bgp.init
 	@cd $(CLUSTER_BGP_DIR) && terraform apply $(TF_VARS) $(EXTRA_TF_VARS)
 
-bgp.destroy: bgp.init
-	@cd $(CLUSTER_BGP_DIR) && terraform destroy $(TF_VARS) $(EXTRA_TF_VARS)
-
-.PHONY: controller.venv controller.run controller.watch controller.cleanup controller.build
+.PHONY: controller.venv controller.run controller.watch controller.cleanup controller.build controller.deploy-openshift
 controller.venv:
 	@$(MAKE) -C $(CONTROLLER_DIR) venv
 
@@ -142,6 +139,9 @@ controller.cleanup:
 
 controller.build:
 	@$(MAKE) -C $(CONTROLLER_DIR) build
+
+controller.deploy-openshift:
+	@$(MAKE) -C $(CONTROLLER_DIR) deploy-openshift
 
 .PHONY: fmt
 fmt:

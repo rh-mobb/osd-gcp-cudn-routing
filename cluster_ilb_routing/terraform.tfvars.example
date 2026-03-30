@@ -31,7 +31,7 @@ gcp_region = "us-central1"
 # CUDN CIDR to route through the ILB for direct pod/VM connectivity
 # cudn_cidr = "10.100.0.0/16"
 
-# Worker subnet → CUDN firewall: all | e2etest (default, icmp + tcp/80) | none
+# Worker subnet → CUDN firewall: all | e2etest (default, icmp + tcp/8080) | none
 # worker_subnet_to_cudn_firewall_mode = "e2etest"
 
 # Optional: network tags on ILB backend workers to scope worker→CUDN rule (empty = all instances)

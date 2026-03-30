@@ -9,9 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **BGP routing controller (Python / kopf):** [`controller/python/`](controller/python/README.md) — watches Nodes with a configurable label selector (default **`node-role.kubernetes.io/infra`**), reconciles **canIpForward**, **NCC spoke** (creates if missing), **Cloud Router BGP peers**, and **`FRRConfiguration`** CRs on node create / replace / delete. Debounced event-driven + periodic drift loop. GCP auth via WIF credential config. Deployment manifests under `deploy/` (kustomize). Quick-win prototype for [PRODUCTION-ROADMAP.md § 4F](cluster_bgp_routing/PRODUCTION-ROADMAP.md).
+- **BGP routing controller (Python / kopf):** [`controller/python/`](controller/python/README.md) — watches Nodes with a configurable label selector (default **`node-role.kubernetes.io/worker`**), reconciles **canIpForward**, **NCC spoke** (creates if missing), **Cloud Router BGP peers**, and **`FRRConfiguration`** CRs on node create / replace / delete. Debounced event-driven + periodic drift loop. GCP auth via WIF credential config. Deployment manifests under `deploy/` (kustomize). Quick-win prototype for [PRODUCTION-ROADMAP.md § 4F](cluster_bgp_routing/PRODUCTION-ROADMAP.md).
+
+- **Controller OpenShift deploy:** **`ImageStream`** + **Binary `BuildConfig`** (Docker strategy, **`triggers: []`**) so the image is built **in-cluster** and the **`Deployment`** pulls **`image-registry.openshift-image-registry.svc:5000/bgp-routing-system/bgp-routing-controller:latest`**. **`make deploy-openshift`** / **`make controller.deploy-openshift`** runs **`oc apply -k deploy/`**, **`oc start-build … --from-dir=. --follow`**, and **`oc rollout status`**. Documented in [controller/python/README.md § Build and deploy](controller/python/README.md#build-and-deploy).
 
 ### Changed
+
+- **CUDN test pod icanhazip** ([`scripts/deploy-cudn-test-pods.sh`](scripts/deploy-cudn-test-pods.sh)): listens on **8080** via **`FLASK_APP=app.py`** and **`python -m flask run --port=$PORT`** (upstream image only exposes **`app.run(port=80)`**; Flask CLI ignores that block; matches echo VM **`echo_client_vm_port`** default). **[`scripts/e2e-cudn-connectivity.sh`](scripts/e2e-cudn-connectivity.sh)** curls **`http://<pod-ip>:8080/`** from the echo VM. **`worker_subnet_to_cudn_firewall_mode=e2etest`** in **`modules/osd-bgp-routing`** and **`modules/osd-ilb-routing`** now allows **TCP 8080** (was **80**) toward CUDN for that path.
+
+- **BGP teardown:** **`make bgp-destroy`** / **`scripts/bgp-destroy.sh`** no longer run **`controller.cleanup`**. Run **`make controller.cleanup`** explicitly when the controller has reconciled (Cloud Router peers, NCC spoke, **`FRRConfiguration`**) so Terraform can remove instances. Removed **`make bgp.destroy`** — use **`terraform destroy`** from **`cluster_bgp_routing/`** for cluster-only expert teardown, or **`make bgp-destroy`** for cluster + WIF.
+
+- **BGP controller default node selector:** **`NODE_LABEL_KEY`** default is now **`node-role.kubernetes.io/worker`** (was **`infra`**). Infra nodes typically do not run CUDN workloads, so OVN-K does not inject CUDN routes there and BGP sessions had nothing to advertise; workers match the reference stack’s per-node FRR behavior.
+
+- **README:** BGP table and [§ Shared prerequisites](README.md#shared-prerequisites) now match the automations flow: single Terraform apply for static infra; **`configure-routing.sh`** only needs **`oc`**; **`make controller.*`** reads **`terraform output`** from **`cluster_bgp_routing/`**. Quick start states that controller reconciliation must run before **`bgp-e2e`**.
 
 - **README:** BGP [quick start](README.md#quick-start--bgp) now includes **`make controller.venv`** / **`make controller.run`** (and pointers to **`controller.watch`** and in-cluster deploy) so the Python BGP controller is explicit after **`make bgp-apply`**; Makefile summary lists **`controller.*`** targets.
 
@@ -35,8 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Controller `clear_peers` was a no-op:** `gcp.py` used `RoutersClient.patch()` with an empty `bgp_peers` list, but proto3 serialization omits empty repeated fields — the API silently ignored the change. Switched to `RoutersClient.update()` (PUT) which replaces the full resource and correctly clears the peers. This also caused `controller.cleanup` and `bgp-destroy` to leave BGP peers behind, blocking GCE instance deletion.
-- **`bgp-destroy.sh` did not clean up controller-managed resources:** added `make -C controller/python cleanup` step before `terraform destroy` so that BGP peers, NCC spoke, and FRR CRs are removed before Terraform tries to delete the backing instances.
+- **First `make bgp-apply` (single apply with `enable_bgp_routing=true`):** `data.google_compute_subnetwork.worker` in **`modules/osd-bgp-routing`** was read during plan before **`module.osd_vpc`** created the subnet, causing **subnetwork not found**. **`module.bgp_routing`** in **`cluster_bgp_routing/main.tf`** now has **`depends_on = [module.osd_vpc]`** so the data source reads after the subnet exists. The same **`depends_on`** is set on **`module.ilb_routing`** in **`cluster_ilb_routing/main.tf`** for consistency.
+
+- **Controller `clear_peers` was a no-op:** `gcp.py` used `RoutersClient.patch()` with an empty `bgp_peers` list, but proto3 serialization omits empty repeated fields — the API silently ignored the change. Switched to `RoutersClient.update()` (PUT) which replaces the full resource and correctly clears the peers when running **`controller.cleanup`**.
+
+- **`make controller.cleanup` / `controller.run` / `controller.watch`:** fixed `/bin/sh: output: command not found` — `controller/python` Makefile used `$(eval)` + `$(shell … terraform output …)` in recipes; on some environments Make still parsed `$(terraform …)` as Makefile syntax. Replaced with a single-line shell block and **backtick** command substitution for **`terraform output`**.
 
 - **`check` `router_interface_ips_in_worker_subnet`** in **`modules/osd-bgp-routing`** — avoid **`cidrcontains`** (Terraform **1.8+** only); use IPv4 **uint32** range comparison so older Terraform (**`make bgp-apply`**) works.
 
@@ -77,7 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`modules/osd-bgp-routing`** — NCC hub, Router Appliance spoke, Cloud Router, per-worker BGP peers, firewalls (worker subnet → CUDN, BGP **tcp/179**), optional echo VM; outputs **`bgp_peer_matrix`** for **`configure-routing.sh`**.
 - **`cluster_bgp_routing/`** — reference root module (VPC + OSD cluster + BGP module); **`enable_bgp_routing`** two-phase apply; BGP-specific **`scripts/`** (including **`discover-workers.sh`** with **`networkIP`**, **`configure-routing.sh`** with per-node **`FRRConfiguration`**).
-- **`make bgp-apply`** / **`make bgp-destroy`** and **`scripts/bgp-apply.sh`** / **`scripts/bgp-destroy.sh`**; Makefile **`bgp.init`**, **`bgp.plan`**, **`bgp.apply`**, **`bgp.destroy`** for **`cluster_bgp_routing/`**; **`make validate`** includes the BGP stack.
+- **`make bgp-apply`** / **`make bgp-destroy`** and **`scripts/bgp-apply.sh`** / **`scripts/bgp-destroy.sh`**; Makefile **`bgp.init`**, **`bgp.plan`**, **`bgp.apply`** for **`cluster_bgp_routing/`**; **`make validate`** includes the BGP stack.
 - **Docs:** root **README.md** (ILB + BGP paths, quick start, teardown, layout), **ILB-vs-BGP.md** (Approach B implemented; migration path points at new module/stack), **PRODUCTION.md** (BGP production notes), **scripts/README.md** (**`BGP_APPLY_*`** env vars).
 
 - **`PRODUCTION.md`** — production-readiness gaps (workers, ILB backends, CUDN/VPC routes, health checks, security, ops); **Kubernetes controller** reconciliation concept (watch **Nodes**, **CUDN** CRs, drive GCP + OpenShift alignment).

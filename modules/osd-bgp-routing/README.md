@@ -40,7 +40,7 @@ Replace **`?ref=main`** with a **tag** or **SHA** before relying on the module i
 - `google_compute_router`
 - `google_compute_router_interface` — exactly **2** (primary + redundant HA pair); the redundant interface references the primary via **`redundant_interface`**
 - `google_compute_address` — **2x** INTERNAL **`GCE_ENDPOINT`** reservations for Cloud Router interface IPs when **`reserve_cloud_router_interface_ips`** is **true** (default)
-- `google_compute_firewall` — worker subnet → CUDN (`worker_subnet_to_cudn_firewall_mode`: **`e2etest`** default = ICMP + TCP/80, **`all`**, or **`none`**); BGP TCP **179** (optional **`routing_worker_target_tags`** scoping)
+- `google_compute_firewall` — worker subnet → CUDN (`worker_subnet_to_cudn_firewall_mode`: **`e2etest`** default = ICMP + TCP/8080, **`all`**, or **`none`**); BGP TCP **179** (optional **`routing_worker_target_tags`** scoping)
 - (Optional) Echo VM and firewalls (same pattern as the ILB module)
 
 **Not created by this module** (managed by the controller):

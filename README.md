@@ -9,7 +9,7 @@ This repo provides **Terraform** and scripts to run **OpenShift Dedicated on GCP
 | Approach | TL;DR | Full guide |
 |----------|--------|------------|
 | **ILB** | Static VPC route sends the CUDN CIDR to an **internal passthrough NLB**; workers are backends. **Stub** `FRRConfiguration` satisfies RouteAdvertisements. Familiar Compute/LB primitives; **two-phase** `terraform apply`. | [**cluster_ilb_routing/README.md**](cluster_ilb_routing/README.md) |
-| **BGP** | **NCC** Router Appliance + **Cloud Router** BGP to each worker; routes learned into the VPC. **Per-node** `FRRConfiguration`. More IAM and moving parts; **two-phase** apply. | [**cluster_bgp_routing/README.md**](cluster_bgp_routing/README.md) |
+| **BGP** | **NCC** Router Appliance + **Cloud Router** BGP to each worker; routes learned into the VPC. **Per-node** `FRRConfiguration`. More IAM and moving parts; **single** `terraform apply` (static infra) plus the [BGP controller](controller/python/README.md) for spoke, peers, and FRR CRs. | [**cluster_bgp_routing/README.md**](cluster_bgp_routing/README.md) |
 
 Both paths use **OVN-Kubernetes**, **`ClusterUserDefinedNetwork`**, **`RouteAdvertisements`** (conditional SNAT), **`canIpForward`** on workers, and **`configure-routing.sh`** after install — see each stack’s README for defaults (e.g. CUDN name **`ilb-routing-cudn`** vs **`bgp-routing-cudn`**).
 
@@ -33,7 +33,7 @@ This repo wires **GCP** (ILB or BGP) with **OpenShift** so the CUDN overlay is r
 - **OCM:** `OSDGOOGLE_TOKEN` or `ocm_token`
 - **GCP:** project with OSD entitlements; **`gcloud auth application-default login`**
 - **WIF:** [`wif_config/`](wif_config/) applied with the **same** `cluster_name` and `gcp_project_id` as the cluster stack (see below)
-- **CLI:** `terraform`, `gcloud`, `oc`, `jq` (BGP **`configure-routing.sh`** also needs `terraform` for outputs)
+- **CLI:** `terraform`, `gcloud`, `oc`, `jq`. BGP **`configure-routing.sh`** needs only **`oc`**. **`make controller.run`** / **`controller.watch`** read **`terraform output`** from **`cluster_bgp_routing/`**, so apply that stack first and keep state available.
 
 **Terraform inputs (minimum before `make ilb-apply`, `make bgp-apply`, `make apply`, or `make bgp.apply`):**
 
@@ -92,7 +92,9 @@ make controller.venv   # first time only — Python venv in controller/python/
 make controller.run    # one-shot reconcile; reads cluster_bgp_routing terraform output + KUBECONFIG / ADC
 ```
 
-Use **`make controller.watch`** for a long-lived operator (node lifecycle) on your workstation, or **`kubectl apply -k controller/python/deploy/`** after IAM/WIF and image build — see [controller/python/README.md § Build and deploy](controller/python/README.md#build-and-deploy).
+Use **`make controller.watch`** for a long-lived operator (node lifecycle) on your workstation, or **`make controller.deploy-openshift`** (from the repo root) to apply manifests and run an in-cluster **BuildConfig** that pushes to the **internal registry** — see [controller/python/README.md § Build and deploy](controller/python/README.md#build-and-deploy).
+
+You need **at least one successful controller reconciliation** ( **`controller.run`**, **`watch`**, or an in-cluster pod) before **`bgp-e2e`**: without it there is no NCC spoke, no Cloud Router peers, and no **`FRRConfiguration`**.
 
 ```bash
 make bgp-e2e
@@ -102,9 +104,10 @@ make bgp-e2e
 
 **Manual checks:** [cluster_bgp_routing § Quick start (pod and echo VM)](cluster_bgp_routing/README.md#quick-start-pod-and-echo-vm). If the pod cannot reach the VM, run **`./scripts/debug-gcp-bgp.sh`** from **`cluster_bgp_routing/`**.
 
-**When you are done**, tear down (**Terraform** destroys **`cluster_bgp_routing/`**, then **`wif_config/`**). Remove OpenShift objects as needed — [cluster_bgp_routing § Teardown](cluster_bgp_routing/README.md#teardown) (**`FRRConfiguration`** labels, etc.).
+**When you are done**, remove controller-managed GCP state if you used the controller, then tear down (**Terraform** destroys **`cluster_bgp_routing/`**, then **`wif_config/`**). Remove OpenShift objects as needed — [cluster_bgp_routing § Teardown](cluster_bgp_routing/README.md#teardown) (**`FRRConfiguration`** labels, etc.).
 
 ```bash
+make controller.cleanup   # if you ran controller.run / watch / in-cluster reconcile
 make bgp-destroy
 ```
 
@@ -118,12 +121,12 @@ More detail: [**cluster_bgp_routing/README.md**](cluster_bgp_routing/README.md).
 |--------|-------------------|
 | `ilb-apply` / `ilb-destroy` | Full ILB flow / destroy `cluster_ilb_routing` then `wif_config` |
 | `ilb-e2e` | Run [`scripts/e2e-cudn-connectivity.sh`](scripts/e2e-cudn-connectivity.sh) against **`cluster_ilb_routing/`** (`oc`, `gcloud`, `jq`, `terraform` required) |
-| `bgp-apply` / `bgp-destroy` | Full BGP flow / destroy `cluster_bgp_routing` then `wif_config` |
+| `bgp-apply` / `bgp-destroy` | Full BGP deploy / destroy `cluster_bgp_routing` then `wif_config` (`bgp-destroy` does **not** run **`controller.cleanup`**) |
 | `controller.venv` / `controller.run` / `controller.watch` | BGP controller Python venv, one-shot reconcile, long-lived operator — see [controller/python/README.md](controller/python/README.md) |
-| `controller.cleanup` / `controller.build` | Teardown controller-managed GCP/K8s resources / build container image |
+| `controller.cleanup` / `controller.build` / `controller.deploy-openshift` | Teardown controller-managed resources / local podman build / OpenShift apply + binary build + rollout |
 | `bgp-e2e` | Same e2e script against **`cluster_bgp_routing/`** |
 | `init`, `plan`, `apply`, `destroy` | **`cluster_ilb_routing/`** only |
-| `bgp.init`, `bgp.plan`, `bgp.apply`, `bgp.destroy` | **`cluster_bgp_routing/`** only |
+| `bgp.init`, `bgp.plan`, `bgp.apply` | **`cluster_bgp_routing/`** Terraform only (use **`make bgp-destroy`** for full stack teardown) |
 | `wif.*` | **`wif_config/`** |
 | `fmt`, `validate` | All stacks + modules |
 

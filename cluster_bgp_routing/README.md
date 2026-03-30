@@ -111,11 +111,12 @@ From the **repo root**:
 ```bash
 make bgp-apply
 make bgp-e2e          # optional: CUDN pod ↔ echo VM checks (after controller deployed + BGP Established)
-# When finished — Terraform destroys this stack then wif_config/ (remove OpenShift objects per § Teardown):
+# When finished — remove controller-managed peers/spoke/FRR if you used the controller, then:
+make controller.cleanup   # skip if you never reconciled with the BGP controller
 make bgp-destroy
 ```
 
-**Destroy:** **`make bgp-destroy`** from the repo root (last line above), then remove any remaining OpenShift objects (Teardown).
+**Destroy:** From the repo root, **`make controller.cleanup`** when the controller was used, then **`make bgp-destroy`** (Terraform: this stack then **`wif_config/`**). Remove any remaining OpenShift objects ([§ Teardown](#teardown)).
 
 **Terraform passthrough:** `make bgp-apply TF_VARS="..." EXTRA_TF_VARS="..."`.
 
@@ -231,20 +232,23 @@ Same **`ping`** / **`curl`** sequence as [Quick start (pod and echo VM)](#quick-
 
 ## Teardown
 
+From the **repo root** (recommended):
+
 ```bash
-oc delete namespace cudn1
-oc delete clusteruserdefinednetwork bgp-routing-cudn
-oc delete routeadvertisements default
-oc delete frrconfiguration -n openshift-frr-k8s -l cudn.redhat.com/bgp-stack=osd-gcp-bgp
-
-# Remove the controller
-kubectl delete -k controller/python/deploy/
-
-cd cluster_bgp_routing
-terraform destroy
+make controller.cleanup   # clears Cloud Router peers, NCC spoke, labeled FRRConfiguration (needs terraform output + GCP + kube)
+make bgp-destroy          # terraform destroy cluster_bgp_routing/ then wif_config/
 ```
 
-Then **`make wif.destroy`** from the repo root.
+**OpenShift cleanup** (from **repo root**; order can vary; cluster may already be gone):
+
+```bash
+oc delete namespace cudn1 --ignore-not-found
+oc delete clusteruserdefinednetwork bgp-routing-cudn --ignore-not-found
+oc delete routeadvertisements default --ignore-not-found
+kubectl delete -k controller/python/deploy/ 2>/dev/null || true
+```
+
+**Expert / cluster-only Terraform:** from **`cluster_bgp_routing/`**, **`terraform destroy`** (then **`make wif.destroy`** from repo root if you still need WIF removed).
 
 ---
 
@@ -252,7 +256,7 @@ Then **`make wif.destroy`** from the repo root.
 
 | Symptom | Check |
 |---------|--------|
-| **No FRRConfiguration CRs** | Controller deployed and running? Nodes have the expected label (`node-role.kubernetes.io/infra` by default)? Check controller logs. |
+| **No FRRConfiguration CRs** | Controller deployed and running? Nodes have the expected label (`node-role.kubernetes.io/worker` by default)? Check controller logs. |
 | **NCC spoke missing** | Controller creates the spoke on first reconciliation. Check controller logs for GCP IAM errors (`networkconnectivity.spokes.create`). |
 | **Terraform NCC / router errors** | IAM roles ([IAM](#iam-prerequisites)); API enablement; quota. |
 | **BGP session down** | **`./scripts/debug-gcp-bgp.sh`**; **`gcloud routers get-status`** + **`oc debug node/…`** — from the worker host, **`nc -vz CLOUD_ROUTER_IP 179`** should succeed. If TCP works but FRR stays **Active** with **No path to specified Neighbor**, workers likely use a **/32** on **br-ex** (GCP); the controller appends **`disable-connected-check`** for each Cloud Router neighbor (**`spec.raw`**). Also verify firewall **tcp/179**, **neighbor** IPs, and **ASN** (**`cloud_router_asn`** / **`frr_asn`**). |
@@ -279,4 +283,4 @@ Shared with ILB where applicable (**`canIpForward`**, worker replacement). **BGP
 
 ## Makefile targets for this directory only
 
-From repo root: **`make bgp.init`**, **`bgp.plan`**, **`bgp.apply`**, **`bgp.destroy`** run Terraform **only** in **`cluster_bgp_routing/`**.
+From repo root: **`make bgp.init`**, **`bgp.plan`**, **`bgp.apply`** run Terraform **only** in **`cluster_bgp_routing/`**. Use **`make bgp-destroy`** (after **`controller.cleanup`** if you used the controller) to destroy this stack and **`wif_config/`** together.

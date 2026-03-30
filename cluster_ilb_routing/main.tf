@@ -97,6 +97,9 @@ module "ilb_routing" {
 
   count = var.enable_ilb_routing ? 1 : 0
 
+  # Same as BGP stack: worker subnet data source must run after osd_vpc creates the subnet.
+  depends_on = [module.osd_vpc]
+
   project_id   = var.gcp_project_id
   region       = var.gcp_region
   cluster_name = var.cluster_name

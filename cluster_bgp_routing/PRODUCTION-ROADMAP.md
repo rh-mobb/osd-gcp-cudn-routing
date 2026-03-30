@@ -20,7 +20,7 @@ Everything here should land before any non-lab traffic touches the stack. Change
 
 ### 1B -- Firewall tightening
 
-- [x] **`worker_subnet_to_cudn_firewall_mode`** (`all` \| **`e2etest`** default \| `none`) on **`modules/osd-bgp-routing`** and **`modules/osd-ilb-routing`**: **`e2etest`** allows ICMP + TCP/80 for documented e2e; **`all`** restores broad allow; **`none`** omits the rule (bring your own policy). Cluster roots: **`cluster_*_routing/variables.tf`**, **`main.tf`**.
+- [x] **`worker_subnet_to_cudn_firewall_mode`** (`all` \| **`e2etest`** default \| `none`) on **`modules/osd-bgp-routing`** and **`modules/osd-ilb-routing`**: **`e2etest`** allows ICMP + TCP/8080 (icanhazip test pods and echo VM host port) for documented e2e; **`all`** restores broad allow; **`none`** omits the rule (bring your own policy). Cluster roots: **`cluster_*_routing/variables.tf`**, **`main.tf`**.
 - [x] **`routing_worker_target_tags`** (optional list): when non-empty, scopes **worker→CUDN** and **BGP tcp/179** (BGP module only) with GCP **`target_tags`**. Workers must be given matching **network tags** (e.g. instance template / MachineSet). Empty = subnet-wide match (lab default).
 - [ ] Evaluate whether explicit **egress** rules are needed for CUDN return traffic (depends on org default-deny policy).
 
@@ -44,7 +44,7 @@ Everything here should land before any non-lab traffic touches the stack. Change
 
 ### E2E Checkpoint -- Phase 1
 
-> **Run a full e2e test** (`make bgp-apply && make bgp-e2e && make bgp-destroy`) after completing all of Phase 1. This validates that firewall tightening, echo VM changes, and IP reservation haven't broken the data path. If the firewall changes are the only risky items, you can batch 1A-1E into a single test cycle.
+> **Run a full e2e test** after completing all of Phase 1 — e.g. `make bgp-apply`, then **`make controller.run`** (or **`controller.watch`**) so routing converges, then **`make bgp-e2e`**, then **`make controller.cleanup`** and **`make bgp-destroy`**. Skip **`controller.*`** only if you are not exercising the controller. This validates that firewall tightening, echo VM changes, and IP reservation haven't broken the data path. If the firewall changes are the only risky items, you can batch 1A-1E into a single test cycle.
 
 ---
 
@@ -132,7 +132,7 @@ These items are for scaling beyond a pilot. They involve larger structural chang
 
 ### 4A -- Dedicated router node pool
 
-- [ ] Design: optional labeled machine pool (`node-role.kubernetes.io/router`) with smaller instance types dedicated to routing. The controller selects nodes via **`NODE_LABEL_KEY`** / **`NODE_LABEL_VALUE`** — default matches OSD infra nodes; change to a custom label when adding a dedicated pool.
+- [ ] Design: optional labeled machine pool (`node-role.kubernetes.io/router`) with smaller instance types dedicated to routing. The controller selects nodes via **`NODE_LABEL_KEY`** / **`NODE_LABEL_VALUE`** — default matches OSD worker nodes (so CUDN routes exist for BGP advertisement); change to a custom label when adding a dedicated pool.
 - [x] Controller watches Nodes by label, discovers GCE instances via `providerID`, reconciles `canIpForward`, NCC spoke, BGP peers, and `FRRConfiguration` CRs.
 - [ ] Document cost/performance trade-offs (fewer hops vs dedicated instances; infra-shared vs isolated routers).
 
