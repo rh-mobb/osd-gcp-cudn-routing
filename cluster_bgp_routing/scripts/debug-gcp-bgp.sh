@@ -37,9 +37,12 @@ GCP_PROJECT="$(echo "$TF_JSON" | jq -r '.gcp_project_id.value')"
 GCP_REGION="$(echo "$TF_JSON" | jq -r '.gcp_region.value')"
 CLUSTER="$(echo "$TF_JSON" | jq -r '.cluster_name.value')"
 CUDN_CIDR="$(echo "$TF_JSON" | jq -r '.cudn_cidr.value')"
-ROUTER="${CLUSTER}-cudn-cr"
-NCC_HUB="${CLUSTER}-ncc-hub"
-NCC_SPOKE="${CLUSTER}-ra-spoke"
+ROUTER="$(echo "$TF_JSON" | jq -r '.cloud_router_name.value // empty')"
+NCC_HUB="$(echo "$TF_JSON" | jq -r '.ncc_hub_name.value // empty')"
+NCC_SPOKE="$(echo "$TF_JSON" | jq -r '.ncc_spoke_name.value // empty')"
+[[ -z "$ROUTER" ]] && ROUTER="${CLUSTER}-cudn-cr"
+[[ -z "$NCC_HUB" ]] && NCC_HUB="${CLUSTER}-ncc-hub"
+[[ -z "$NCC_SPOKE" ]] && NCC_SPOKE="${CLUSTER}-ra-spoke"
 FW_BGP="${CLUSTER}-bgp-worker-subnet"
 FW_CUDN="${CLUSTER}-worker-subnet-to-cudn"
 
@@ -56,9 +59,10 @@ echo "$TF_JSON" | jq -r '
     "- cloud_router_asn (GCP): \(.cloud_router_asn.value)",
     "- frr_asn (nodes): \(.frr_asn.value)",
     "- cudn_cidr: \(.cudn_cidr.value)",
-    "- cloud_router_interface_ips: \(.cloud_router_interface_ips.value | @json)"
+    "- cloud_router_interface_ips: \(.cloud_router_interface_ips.value | @json)",
+    "- ncc_hub_name: \(.ncc_hub_name.value // "n/a")",
+    "- ncc_spoke_name: \(.ncc_spoke_name.value // "n/a")"
   ] | .[]'
-echo "$TF_JSON" | jq -r '.bgp_peer_matrix.value[] | "- worker \(.instance_name): \(.worker_ip_address) peers \(.cloud_router_ips | @json)"'
 
 section "Cloud Router BGP status ($ROUTER)"
 gcloud compute routers get-status "$ROUTER" \

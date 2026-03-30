@@ -9,12 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **BGP routing controller (Python / kopf):** [`controller/python/`](controller/python/README.md) — watches Nodes with a configurable label selector (default **`node-role.kubernetes.io/infra`**), reconciles **canIpForward**, **NCC spoke** (creates if missing), **Cloud Router BGP peers**, and **`FRRConfiguration`** CRs on node create / replace / delete. Debounced event-driven + periodic drift loop. GCP auth via WIF credential config. Deployment manifests under `deploy/` (kustomize). Quick-win prototype for [PRODUCTION-ROADMAP.md § 4F](cluster_bgp_routing/PRODUCTION-ROADMAP.md).
+
+### Changed
+
+- **Controller owns dynamic resources:** NCC spoke, Cloud Router BGP peers, `canIpForward`, and `FRRConfiguration` CRs are now managed exclusively by the controller (`controller/python/`). Terraform manages only the **static** infrastructure (NCC hub, Cloud Router, interfaces, firewalls). This avoids ownership conflicts between Terraform and the controller on re-apply.
+
+  **Breaking changes from previous unreleased state:**
+  - `modules/osd-bgp-routing`: removed `google_network_connectivity_spoke`, `google_compute_router_peer` resources, and `var.router_instances`. New outputs: `ncc_hub_name`, `ncc_spoke_name`, `cloud_router_asn`, `frr_asn`, `ncc_spoke_site_to_site_data_transfer`. Removed outputs: `ncc_spoke_id`, `bgp_peer_matrix`.
+  - `cluster_bgp_routing`: removed `data.external "workers"`, all discovery locals, `var.bgp_router_instance_name_regex`, and worker-related outputs (`worker_instances`, `bgp_peer_matrix`, `bgp_router_instance_name_regex`). New outputs: `ncc_hub_name`, `ncc_spoke_name`, `cloud_router_name`. Single-pass apply (no two-phase worker wait).
+  - Deleted scripts: `discover-workers.sh`, `enable-worker-can-ip-forward.sh`.
+  - `configure-routing.sh` is now one-time setup only (FRR enable, CUDN, RouteAdvertisements) — no longer manages `canIpForward` or `FRRConfiguration`.
+  - `bgp-apply.sh` simplified: WIF → single Terraform apply → oc login → configure-routing.sh. No worker wait loop or canIpForward step.
+
+- **BGP reference stack (`cluster_bgp_routing`):** default **`compute_machine_type`** is **`n2-standard-4`** (typical osd-cluster worker default); **`data.osdgoogle_machine_types`** renamed to **`osd_catalog`**. **`cluster_ilb_routing`** gets the same default machine type and **`osd_catalog`** rename.
+
+### Added
+
 - **Cloud Router interface IP reservations:** **`reserve_cloud_router_interface_ips`** (default **true**) in **`modules/osd-bgp-routing`** — two **`google_compute_address`** resources (INTERNAL **`GCE_ENDPOINT`**) so interface IPs are not taken by other GCE resources; wired from **`cluster_bgp_routing`**. New file **`router_interface_ips.tf`**. **`check`** **`router_interface_ips_in_worker_subnet`** validates IPs lie in the worker subnet CIDR.
 - **Terraform remote state:** [docs/terraform-backend-gcs.md](docs/terraform-backend-gcs.md); **`cluster_bgp_routing/backend.tf.example`**, **`cluster_ilb_routing/backend.tf.example`**; cross-links in [PRODUCTION.md](PRODUCTION.md), [README.md](README.md), cluster READMEs, **`terraform.tfvars.example`** files, and ILB/BGP module READMEs. [PRODUCTION-ROADMAP.md](cluster_bgp_routing/PRODUCTION-ROADMAP.md) Phase 1C / 1D / 1E items marked done.
 
 - **`cluster_bgp_routing/PRODUCTION-ROADMAP.md`** -- phased, checkboxed roadmap for BGP production readiness: safety/correctness (Phase 1), operational foundations (Phase 2), multi-CUDN and observability (Phase 3), architecture and scale (Phase 4); includes e2e test checkpoint guidance between phases. Linked from [cluster_bgp_routing/PRODUCTION.md](cluster_bgp_routing/PRODUCTION.md) and root [PRODUCTION.md](PRODUCTION.md).
 
 ### Fixed
+
+- **Controller `clear_peers` was a no-op:** `gcp.py` used `RoutersClient.patch()` with an empty `bgp_peers` list, but proto3 serialization omits empty repeated fields — the API silently ignored the change. Switched to `RoutersClient.update()` (PUT) which replaces the full resource and correctly clears the peers. This also caused `controller.cleanup` and `bgp-destroy` to leave BGP peers behind, blocking GCE instance deletion.
+- **`bgp-destroy.sh` did not clean up controller-managed resources:** added `make -C controller/python cleanup` step before `terraform destroy` so that BGP peers, NCC spoke, and FRR CRs are removed before Terraform tries to delete the backing instances.
 
 - **`check` `router_interface_ips_in_worker_subnet`** in **`modules/osd-bgp-routing`** — avoid **`cidrcontains`** (Terraform **1.8+** only); use IPv4 **uint32** range comparison so older Terraform (**`make bgp-apply`**) works.
 

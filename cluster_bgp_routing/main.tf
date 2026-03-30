@@ -1,4 +1,4 @@
-# Phase 1: VPC + OSD cluster with bare metal workers
+# Phase 1: VPC + OSD cluster (default worker pool; see compute_machine_type)
 
 module "osd_vpc" {
   source = "git::https://github.com/rh-mobb/terraform-provider-osd-google.git//modules/osd-vpc"
@@ -10,13 +10,13 @@ module "osd_vpc" {
   enable_private_cluster = var.enable_psc
 }
 
-data "osdgoogle_machine_types" "baremetal" {
+data "osdgoogle_machine_types" "osd_catalog" {
   region         = var.gcp_region
   gcp_project_id = var.gcp_project_id
 }
 
 locals {
-  machine_type_ids = [for item in data.osdgoogle_machine_types.baremetal.items : item.id]
+  machine_type_ids = [for item in data.osdgoogle_machine_types.osd_catalog.items : item.id]
 }
 
 check "machine_type_available" {
@@ -56,47 +56,7 @@ module "cluster" {
   admin_password = var.admin_password != "" ? var.admin_password : null
 }
 
-# Phase 2: Discover workers and create BGP / NCC / Cloud Router
-
-data "external" "workers" {
-  count = var.enable_bgp_routing ? 1 : 0
-
-  program = ["bash", "${path.module}/scripts/discover-workers.sh"]
-
-  query = {
-    project      = var.gcp_project_id
-    zone         = var.availability_zone
-    cluster_name = var.cluster_name
-  }
-}
-
-locals {
-  # Avoid indexing data.external.workers[0] when count = 0 (enable_bgp_routing false).
-  discovered_instances = length(data.external.workers) > 0 ? try(jsondecode(data.external.workers[0].result.instances), []) : []
-
-  discovered_worker_instances = [
-    for inst in local.discovered_instances : inst
-    if can(regex(".*-worker-.*", try(inst.name, try(regex("[^/]+$", inst.selfLink), ""))))
-  ]
-
-  worker_instances = [
-    for inst in local.discovered_worker_instances : {
-      name       = inst.name
-      self_link  = inst.selfLink
-      zone       = regex("zones/([^/]+)$", inst.zone)[0]
-      ip_address = inst.networkIP
-    }
-  ]
-}
-
-check "worker_network_ip" {
-  assert {
-    condition = !var.enable_bgp_routing || alltrue([
-      for w in local.worker_instances : w.ip_address != null && w.ip_address != ""
-    ])
-    error_message = "Worker discovery returned an empty networkIP for at least one worker. Check gcloud / discover-workers.sh."
-  }
-}
+# Phase 2: BGP / NCC / Cloud Router (static infra only — controller manages spoke + peers)
 
 module "bgp_routing" {
   source = "../modules/osd-bgp-routing"
@@ -113,8 +73,6 @@ module "bgp_routing" {
   worker_subnet_to_cudn_firewall_mode = var.worker_subnet_to_cudn_firewall_mode
   routing_worker_target_tags          = var.routing_worker_target_tags
 
-  router_instances = local.worker_instances
-
   cloud_router_asn                   = var.cloud_router_asn
   frr_asn                            = var.frr_asn
   bgp_interface_host_offset          = var.bgp_interface_host_offset
@@ -124,7 +82,7 @@ module "bgp_routing" {
   ncc_spoke_site_to_site_data_transfer = var.ncc_spoke_site_to_site_data_transfer
 
   enable_echo_client_vm       = var.enable_echo_client_vm
-  echo_client_vm_zone         = var.echo_client_vm_zone
+  echo_client_vm_zone         = var.echo_client_vm_zone != null ? var.echo_client_vm_zone : var.availability_zone
   echo_client_vm_port         = var.echo_client_vm_port
   echo_client_vm_machine_type = var.echo_client_vm_machine_type
 }

@@ -1,23 +1,15 @@
-# BGP-based CUDN routing: NCC Router Appliance + Cloud Router BGP to workers.
-# Learned routes populate the VPC; no static google_compute_route to an ILB.
+# BGP-based CUDN routing: NCC hub + Cloud Router + interfaces + firewalls.
+# The controller (controller/python/) owns the dynamic resources:
+#   NCC spoke, Cloud Router BGP peers, canIpForward, FRRConfiguration CRs.
 #
 # GCP Router Appliance architecture (per official docs):
 #   - Cloud Router gets exactly TWO interfaces (primary + redundant HA pair).
-#   - Each router appliance instance peers with BOTH interfaces (2 BGP peers per worker).
+#   - Each router appliance instance peers with BOTH interfaces (2 BGP peers per node).
 #   - redundant_interface is one-directional: the second interface references the first.
 
 locals {
-  zones = distinct([for inst in var.router_instances : inst.zone])
-
   worker_subnet_path = replace(var.subnet_id, "https://www.googleapis.com/compute/v1/", "")
   worker_subnet      = regex("^projects/(?P<project>[^/]+)/regions/(?P<region>[^/]+)/subnetworks/(?P<name>[^/]+)$", local.worker_subnet_path)
-
-  # Stable ordering: same index order as BGP peers (sort by GCE name).
-  instance_names_sorted = sort([for i in var.router_instances : i.name])
-  sorted_instances = [
-    for n in local.instance_names_sorted :
-    one([for i in var.router_instances : i if i.name == n])
-  ]
 
   # Exactly 2 IPs — one per Cloud Router interface (primary + redundant).
   router_private_ips = var.router_interface_private_ips != null ? var.router_interface_private_ips : [
@@ -80,26 +72,7 @@ resource "google_network_connectivity_hub" "cudn" {
   description = "NCC hub for CUDN router appliance (OSD BGP routing)"
 }
 
-resource "google_network_connectivity_spoke" "router_appliance" {
-  name        = "${var.cluster_name}-ra-spoke"
-  location    = var.region
-  project     = var.project_id
-  description = "Router appliance spoke for OSD workers (BGP to Cloud Router)"
-
-  hub = google_network_connectivity_hub.cudn.id
-
-  linked_router_appliance_instances {
-    site_to_site_data_transfer = var.ncc_spoke_site_to_site_data_transfer
-    dynamic "instances" {
-      for_each = var.router_instances
-      content {
-        virtual_machine = instances.value.self_link
-        ip_address      = instances.value.ip_address
-      }
-    }
-  }
-}
-
+# Cloud Router — no depends_on spoke; the controller creates the spoke independently.
 resource "google_compute_router" "cudn" {
   name    = "${var.cluster_name}-cudn-cr"
   project = var.project_id
@@ -109,8 +82,6 @@ resource "google_compute_router" "cudn" {
   bgp {
     asn = var.cloud_router_asn
   }
-
-  depends_on = [google_network_connectivity_spoke.router_appliance]
 }
 
 # Two Cloud Router interfaces (HA pair). The primary is created first; the
@@ -134,35 +105,4 @@ resource "google_compute_router_interface" "redundant" {
   subnetwork          = var.subnet_id
   private_ip_address  = local.cloud_router_interface_ip_redundant
   redundant_interface = google_compute_router_interface.primary.name
-}
-
-# Each router appliance instance gets 2 BGP peers — one on each interface.
-resource "google_compute_router_peer" "worker_primary" {
-  count = length(local.sorted_instances)
-
-  project = var.project_id
-  region  = var.region
-  name    = "${var.cluster_name}-bgp-peer-${count.index}-0"
-  router  = google_compute_router.cudn.name
-
-  interface                 = google_compute_router_interface.primary.name
-  peer_asn                  = var.frr_asn
-  peer_ip_address           = local.sorted_instances[count.index].ip_address
-  ip_address                = google_compute_router_interface.primary.private_ip_address
-  router_appliance_instance = local.sorted_instances[count.index].self_link
-}
-
-resource "google_compute_router_peer" "worker_redundant" {
-  count = length(local.sorted_instances)
-
-  project = var.project_id
-  region  = var.region
-  name    = "${var.cluster_name}-bgp-peer-${count.index}-1"
-  router  = google_compute_router.cudn.name
-
-  interface                 = google_compute_router_interface.redundant.name
-  peer_asn                  = var.frr_asn
-  peer_ip_address           = local.sorted_instances[count.index].ip_address
-  ip_address                = google_compute_router_interface.redundant.private_ip_address
-  router_appliance_instance = local.sorted_instances[count.index].self_link
 }

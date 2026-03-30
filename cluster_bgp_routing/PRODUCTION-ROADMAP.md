@@ -132,23 +132,20 @@ These items are for scaling beyond a pilot. They involve larger structural chang
 
 ### 4A -- Dedicated router node pool
 
-- [ ] Design: define a labeled machine pool (`node-role.kubernetes.io/router`) with smaller instance types dedicated to routing.
-- [ ] Update `discover-workers.sh` (or its replacement) to filter by label/pool name instead of `-worker-` name pattern.
-- [ ] Restrict `canIpForward`, NCC spoke, BGP peers, and `FRRConfiguration` to router-pool nodes only.
-- [ ] Document cost/performance trade-offs (fewer hops vs dedicated instances).
+- [ ] Design: optional labeled machine pool (`node-role.kubernetes.io/router`) with smaller instance types dedicated to routing. The controller selects nodes via **`NODE_LABEL_KEY`** / **`NODE_LABEL_VALUE`** — default matches OSD infra nodes; change to a custom label when adding a dedicated pool.
+- [x] Controller watches Nodes by label, discovers GCE instances via `providerID`, reconciles `canIpForward`, NCC spoke, BGP peers, and `FRRConfiguration` CRs.
+- [ ] Document cost/performance trade-offs (fewer hops vs dedicated instances; infra-shared vs isolated routers).
 
 ### 4B -- Worker discovery improvements
 
-- [ ] Replace `data.external` + shell script with `google_compute_instance` data sources using `filter` argument, or a custom provider data source. Reduces fragility (no gcloud/jq dependency at plan time).
-- [ ] Add `precondition` blocks on the `bgp_routing` module call: error clearly if no workers found, if `networkIP` is empty, if instances are not `RUNNING`.
-- [ ] Consider `for_each` instead of `count` for `google_compute_router_peer` resources (more stable when worker order changes or workers are added/removed -- avoids peer index shift).
+- [x] **Terraform no longer discovers workers.** The controller uses Kubernetes Node `providerID` and the GCP Compute API to discover instances — no `data.external` or `gcloud`/`jq` dependency at plan time.
+- [x] **BGP peers managed by controller.** No `for_each` vs `count` concerns — the controller computes the desired peer set and patches the Cloud Router directly.
 
 ### 4C -- Multi-zone support
 
-- [ ] Update `availability_zone` (string) to `availability_zones` (list) in `cluster_bgp_routing/variables.tf`.
-- [ ] Update `discover-workers.sh` to query across all zones (or replace per 4B).
-- [ ] Update `enable-worker-can-ip-forward.sh` to iterate all zones.
-- [ ] Verify Cloud Router (regional) handles multi-zone peers correctly (expected: yes, it is zone-agnostic).
+- [ ] Update `availability_zone` (string) to `availability_zones` (list) in `cluster_bgp_routing/variables.tf` (for the default worker pool; Cloud Router is regional and zone-agnostic).
+- [x] **Controller is zone-agnostic:** discovers zones from `Node.spec.providerID` — no script changes needed for multi-zone.
+- [ ] Verify Cloud Router (regional) handles multi-zone peers correctly (expected: yes).
 - [ ] Test zone-failure scenario: cordon all nodes in one zone, verify routes withdraw and traffic shifts.
 
 ### 4D -- Cloud Router HA
@@ -166,10 +163,12 @@ These items are for scaling beyond a pilot. They involve larger structural chang
 
 ### 4F -- Full automation (controller)
 
-- [ ] Design doc: Kubernetes controller (or Operator) watching Node/Machine objects, reconciling GCP state (canIpForward, NCC spoke, Cloud Router peers) and OpenShift state (FRRConfiguration CRs).
-- [ ] Prototype with a simple controller-runtime reconciler.
-- [ ] Define leader election, error handling, rate limiting, and credential management.
-- [ ] Graduate from "runbook + manual terraform apply" to "controller-driven reconciliation."
+- [x] Design doc: Kubernetes controller watching Node objects, reconciling GCP state (canIpForward, NCC spoke, Cloud Router peers) and OpenShift state (FRRConfiguration CRs).
+- [x] **Quick-win prototype:** Python / kopf controller in [`controller/python/`](../../controller/python/README.md) — watches Nodes with configurable label selector, reconciles all 4 dynamic resources (canIpForward, NCC spoke, Cloud Router peers, FRRConfiguration), debounced event + periodic drift loop, WIF for GCP credentials. Deployment manifests in `deploy/` (kustomize).
+- [x] **Controller owns dynamic resources:** Terraform refactored to only manage static infra (hub, router, interfaces, firewalls). Controller creates NCC spoke on first reconciliation and fully owns spoke instances, BGP peers, canIpForward, and FRRConfiguration CRs. No ownership conflict with Terraform on re-apply.
+- [ ] Validate kopf controller in a live cluster (node replacement, scale-up, scale-down).
+- [ ] **Production:** port reconciliation logic to Go / controller-runtime; add `BGPRoutingConfig` CRD for operator-owned configuration; OLM bundle (`controller/go/`).
+- [ ] Define leader election, error handling, rate limiting, and credential management (kopf prototype uses threading + debounce; Go version uses controller-runtime leader election).
 
 ### E2E Checkpoint -- Phase 4
 

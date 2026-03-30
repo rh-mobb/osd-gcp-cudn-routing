@@ -19,13 +19,13 @@ openshift_version = "4.21.3"
 # GCP region
 gcp_region = "us-central1"
 
-# Bare metal machine type for worker nodes
-# compute_machine_type = "c3-standard-192-metal"
+# Default OSD worker pool machine type (OCM catalog)
+# compute_machine_type = "n2-standard-4"
 
 # Number of worker nodes
 # compute_nodes = 3
 
-# Single zone for bare metal (machine type must exist in zone)
+# Single zone for default worker pool (machine type must exist in zone)
 # availability_zone = "us-central1-a"
 
 # CUDN CIDR to route through the ILB for direct pod/VM connectivity

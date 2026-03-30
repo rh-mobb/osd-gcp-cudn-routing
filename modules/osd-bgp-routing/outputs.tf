@@ -3,9 +3,14 @@ output "ncc_hub_id" {
   value       = google_network_connectivity_hub.cudn.id
 }
 
-output "ncc_spoke_id" {
-  description = "Router appliance spoke ID"
-  value       = google_network_connectivity_spoke.router_appliance.id
+output "ncc_hub_name" {
+  description = "NCC hub name (controller uses this to create the spoke)"
+  value       = google_network_connectivity_hub.cudn.name
+}
+
+output "ncc_spoke_name" {
+  description = "Expected NCC spoke name (controller creates this spoke)"
+  value       = "${var.cluster_name}-ra-spoke"
 }
 
 output "cloud_router_id" {
@@ -19,25 +24,26 @@ output "cloud_router_name" {
 }
 
 output "cloud_router_interface_ips" {
-  description = "Cloud Router private IPs [primary, redundant] — every worker peers with both"
+  description = "Cloud Router private IPs [primary, redundant] — every router node peers with both"
   value = [
     google_compute_router_interface.primary.private_ip_address,
     google_compute_router_interface.redundant.private_ip_address,
   ]
 }
 
-output "bgp_peer_matrix" {
-  description = "Per-worker pairing: GCE instance name, Cloud Router neighbor IPs (both interfaces), worker IP (sorted by instance name)"
-  value = [
-    for i, inst in local.sorted_instances : {
-      instance_name = inst.name
-      cloud_router_ips = [
-        google_compute_router_interface.primary.private_ip_address,
-        google_compute_router_interface.redundant.private_ip_address,
-      ]
-      worker_ip_address = inst.ip_address
-    }
-  ]
+output "cloud_router_asn" {
+  description = "Cloud Router BGP ASN"
+  value       = var.cloud_router_asn
+}
+
+output "frr_asn" {
+  description = "FRR / node BGP ASN (pass-through for the controller)"
+  value       = var.frr_asn
+}
+
+output "ncc_spoke_site_to_site_data_transfer" {
+  description = "site_to_site_data_transfer flag (pass-through for the controller)"
+  value       = var.ncc_spoke_site_to_site_data_transfer
 }
 
 output "echo_client_vm_internal_ip" {

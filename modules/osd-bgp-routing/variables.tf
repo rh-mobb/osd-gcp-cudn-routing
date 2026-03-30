@@ -26,7 +26,7 @@ variable "subnet_id" {
 variable "cudn_cidr" {
   type        = string
   default     = "10.100.0.0/16"
-  description = "CUDN prefix advertised via BGP and used in worker-subnet-to-CUDN firewall"
+  description = "CUDN prefix used in worker-subnet-to-CUDN firewall destination_ranges"
 }
 
 variable "worker_subnet_to_cudn_firewall_mode" {
@@ -56,16 +56,6 @@ variable "routing_worker_target_tags" {
   EOT
 }
 
-variable "router_instances" {
-  type = list(object({
-    name       = string
-    self_link  = string
-    zone       = string
-    ip_address = string
-  }))
-  description = "Worker instances as router appliances: GCE name, self_link, zone, and primary internal IP. Each instance gets 2 BGP peers (one per Cloud Router interface)."
-}
-
 variable "cloud_router_asn" {
   type        = number
   default     = 64512
@@ -75,7 +65,7 @@ variable "cloud_router_asn" {
 variable "frr_asn" {
   type        = number
   default     = 65003
-  description = "BGP ASN configured on cluster nodes (frr-k8s / FRRConfiguration)."
+  description = "BGP ASN configured on cluster nodes (frr-k8s / FRRConfiguration). Passed through as output for the controller."
 }
 
 variable "bgp_interface_host_offset" {
@@ -115,7 +105,7 @@ variable "echo_client_vm_port" {
 variable "echo_client_vm_zone" {
   type        = string
   default     = null
-  description = "Zone for the echo VM. If null, uses the first zone from router_instances."
+  description = "Zone for the echo VM. Required when enable_echo_client_vm is true."
 }
 
 variable "echo_client_vm_machine_type" {
@@ -127,5 +117,5 @@ variable "echo_client_vm_machine_type" {
 variable "ncc_spoke_site_to_site_data_transfer" {
   type        = bool
   default     = false
-  description = "site_to_site_data_transfer on the Router Appliance spoke (see GCP NCC docs for your use case)."
+  description = "site_to_site_data_transfer flag for the NCC spoke (passed through as output for the controller)."
 }

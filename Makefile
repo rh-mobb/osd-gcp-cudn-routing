@@ -19,6 +19,7 @@
 CLUSTER_DIR := cluster_ilb_routing
 CLUSTER_BGP_DIR := cluster_bgp_routing
 WIF_DIR := wif_config
+CONTROLLER_DIR := controller/python
 MODULES := $(sort $(notdir $(wildcard modules/*/)))
 
 # Optional extra terraform CLI args (e.g. TF_VARS="-var-file=custom.tfvars").
@@ -35,6 +36,12 @@ help:
 	@echo "  bgp-apply     full deploy: WIF, cluster pass1, wait workers, pass2 BGP+NCC+echo VM, oc login, cluster_bgp_routing configure-routing.sh"
 	@echo "  bgp-destroy   terraform destroy $(CLUSTER_BGP_DIR)/ then $(WIF_DIR)/ (-auto-approve)"
 	@echo "  bgp-e2e       CUDN pod ↔ echo VM checks ($(CLUSTER_BGP_DIR)/; requires oc + gcloud logged in)"
+	@echo ""
+	@echo "  controller.venv      Create Python venv for the BGP routing controller"
+	@echo "  controller.run       One-shot reconciliation (reads terraform output)"
+	@echo "  controller.watch     Run the long-lived operator (kopf event loop)"
+	@echo "  controller.cleanup   Delete all controller-managed resources (peers, spoke, FRR)"
+	@echo "  controller.build     Build the controller container image"
 	@echo ""
 	@echo "  wif.init      terraform init -upgrade in $(WIF_DIR)/"
 	@echo "  wif.plan      terraform plan in $(WIF_DIR)/"
@@ -119,6 +126,22 @@ bgp.apply: bgp.init
 
 bgp.destroy: bgp.init
 	@cd $(CLUSTER_BGP_DIR) && terraform destroy $(TF_VARS) $(EXTRA_TF_VARS)
+
+.PHONY: controller.venv controller.run controller.watch controller.cleanup controller.build
+controller.venv:
+	@$(MAKE) -C $(CONTROLLER_DIR) venv
+
+controller.run:
+	@$(MAKE) -C $(CONTROLLER_DIR) run
+
+controller.watch:
+	@$(MAKE) -C $(CONTROLLER_DIR) watch
+
+controller.cleanup:
+	@$(MAKE) -C $(CONTROLLER_DIR) cleanup
+
+controller.build:
+	@$(MAKE) -C $(CONTROLLER_DIR) build
 
 .PHONY: fmt
 fmt:

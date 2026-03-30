@@ -11,6 +11,11 @@ command -v terraform >/dev/null 2>&1 || {
   exit 1
 }
 
+echo "=== Clean up controller-managed resources (BGP peers, NCC spoke, FRR CRs) ==="
+make -C "${ROOT}/controller/python" cleanup || {
+  echo "WARNING: controller cleanup failed — GCP resources may need manual removal before instances can be deleted." >&2
+}
+
 echo "=== Destroy cluster stack (${CLUSTER_DIR}) ==="
 cd "$CLUSTER_DIR"
 terraform init -upgrade

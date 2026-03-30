@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bgp-routing-controller
+  namespace: bgp-routing-system
+  labels:
+    app.kubernetes.io/name: bgp-routing-controller
+data:
+  # Required — match your Terraform outputs
+  GCP_PROJECT: "CHANGEME"
+  CLUSTER_NAME: "CHANGEME"
+  CLOUD_ROUTER_NAME: "CHANGEME-cudn-cr"
+  CLOUD_ROUTER_REGION: "us-central1"
+  NCC_HUB_NAME: "CHANGEME-ncc-hub"
+  NCC_SPOKE_NAME: "CHANGEME-ra-spoke"
+
+  # FRR ASN must match cluster_bgp_routing/variables.tf frr_asn
+  FRR_ASN: "65003"
+
+  # NCC spoke site_to_site_data_transfer (must match Terraform ncc_spoke_site_to_site_data_transfer)
+  NCC_SPOKE_SITE_TO_SITE: "false"
+
+  # Node label selector — which nodes act as BGP router appliances
+  # Default: OSD infra nodes. Override for a dedicated router MachinePool.
+  NODE_LABEL_KEY: "node-role.kubernetes.io/infra"
+  NODE_LABEL_VALUE: ""
+
+  # Reconciliation tuning
+  RECONCILE_INTERVAL_SECONDS: "60"
+  DEBOUNCE_SECONDS: "5"

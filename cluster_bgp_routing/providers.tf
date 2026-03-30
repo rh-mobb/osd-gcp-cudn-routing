@@ -4,12 +4,11 @@
 #   - OCM token (OSDGOOGLE_TOKEN or ocm_token variable)
 #   - GCP project with WIF prerequisites (see OSD documentation)
 #   - Application Default Credentials (gcloud auth application-default login)
-#   - jq (for discover-workers.sh and configure-routing.sh)
 #
 # Usage:
-#   1. terraform init && terraform apply  (creates cluster + VPC)
-#   2. Wait for workers, then terraform apply again (discovers instances, creates BGP/NCC)
-#   3. oc login, then run scripts/configure-routing.sh
+#   1. terraform init && terraform apply -var='enable_bgp_routing=true'
+#   2. oc login, then run scripts/configure-routing.sh (one-time setup)
+#   3. Deploy the controller (controller/python/) to manage dynamic resources
 
 terraform {
   required_providers {

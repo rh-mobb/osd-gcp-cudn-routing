@@ -10,7 +10,7 @@ output "gcp_region" {
 
 output "availability_zone" {
   value       = var.availability_zone
-  description = "Single zone used for workers and the echo VM (when echo_client_vm_zone is null)"
+  description = "Single zone used for the default worker pool and the echo VM (when echo_client_vm_zone is null)"
 }
 
 output "cluster_name" {
@@ -44,24 +44,29 @@ output "admin_password" {
   sensitive   = true
 }
 
-output "worker_instances" {
-  value       = [for inst in local.discovered_worker_instances : try(inst.name, regex("[^/]+$", inst.selfLink))]
-  description = "Discovered machine-pool worker instance names"
-}
-
-output "bgp_peer_matrix" {
-  value       = length(module.bgp_routing) > 0 ? module.bgp_routing[0].bgp_peer_matrix : []
-  description = "Per-worker: instance_name, cloud_router_ips [primary, redundant], worker_ip_address (for configure-routing.sh)"
-}
-
 output "cloud_router_interface_ips" {
   value       = length(module.bgp_routing) > 0 ? module.bgp_routing[0].cloud_router_interface_ips : []
-  description = "Cloud Router interface IPs [primary, redundant] — every worker peers with both"
+  description = "Cloud Router interface IPs [primary, redundant] — every router node peers with both"
+}
+
+output "cloud_router_name" {
+  value       = length(module.bgp_routing) > 0 ? module.bgp_routing[0].cloud_router_name : null
+  description = "Cloud Router name"
 }
 
 output "ncc_hub_id" {
   value       = length(module.bgp_routing) > 0 ? module.bgp_routing[0].ncc_hub_id : null
   description = "NCC hub ID (null until enable_bgp_routing)"
+}
+
+output "ncc_hub_name" {
+  value       = length(module.bgp_routing) > 0 ? module.bgp_routing[0].ncc_hub_name : null
+  description = "NCC hub name — controller uses this to create the spoke"
+}
+
+output "ncc_spoke_name" {
+  value       = length(module.bgp_routing) > 0 ? module.bgp_routing[0].ncc_spoke_name : null
+  description = "Expected NCC spoke name (created by the controller)"
 }
 
 output "cloud_router_id" {

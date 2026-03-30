@@ -37,8 +37,8 @@ variable "gcp_region" {
 
 variable "compute_machine_type" {
   type        = string
-  default     = "c3-standard-192-metal"
-  description = "Bare metal machine type for worker nodes"
+  default     = "n2-standard-4"
+  description = "GCP machine type for the default OSD worker pool (OCM catalog; matches osd-cluster default intent — e.g. n2-standard-4)."
 }
 
 variable "compute_nodes" {
@@ -50,7 +50,7 @@ variable "compute_nodes" {
 variable "availability_zone" {
   type        = string
   default     = "us-central1-a"
-  description = "Single zone for bare metal workers. The machine type must be available in this zone."
+  description = "Single zone for the default worker pool. The machine type must exist in this zone."
 }
 
 variable "cudn_cidr" {

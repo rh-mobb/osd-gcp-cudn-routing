@@ -82,7 +82,10 @@ API_URL=$(terraform output -raw api_url)
 ADMIN_USER=$(terraform output -raw admin_username)
 ADMIN_PASS=$(terraform output -raw admin_password)
 # shellcheck disable=SC2086
-oc login "$API_URL" -u "$ADMIN_USER" -p "$ADMIN_PASS" $OC_LOGIN_EXTRA_ARGS
+if ! oc login "$API_URL" -u "$ADMIN_USER" -p "$ADMIN_PASS" $OC_LOGIN_EXTRA_ARGS 2>&1; then
+  echo "  Login failed — retrying with --insecure-skip-tls-verify..."
+  oc login "$API_URL" -u "$ADMIN_USER" -p "$ADMIN_PASS" --insecure-skip-tls-verify $OC_LOGIN_EXTRA_ARGS
+fi
 
 echo "=== Step 6/6: configure-routing.sh (canIpForward, FRR, CUDN, RouteAdvertisements) ==="
 cd "$CLUSTER_DIR"

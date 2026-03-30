@@ -86,7 +86,7 @@ make bgp-apply
 make bgp-e2e
 ```
 
-**`bgp-apply`** follows the same orchestration pattern as ILB, but pass 2 enables **`enable_bgp_routing`** and runs the BGP **`configure-routing.sh`** (per-node FRR, reads **`bgp_peer_matrix`**).
+**`bgp-apply`** applies WIF, then a single Terraform apply with **`enable_bgp_routing=true`**, and runs **`configure-routing.sh`** (one-time FRR/CUDN/RouteAdvertisements setup). The [BGP routing controller](controller/python/README.md) manages the dynamic resources (NCC spoke, BGP peers, canIpForward, FRRConfiguration).
 
 **`bgp-e2e`** is the same CUDN **`ping`** / **`curl`** checks as ILB (once BGP is **Established** on workers). Equivalent to **`scripts/e2e-cudn-connectivity.sh -C cluster_bgp_routing`**. Script options: [scripts/README § CUDN connectivity](scripts/README.md#cudn-connectivity-ilb-or-bgp-stack).
 

@@ -1,4 +1,4 @@
-# Phase 1: VPC + OSD cluster with bare metal workers
+# Phase 1: VPC + OSD cluster (default worker pool; see compute_machine_type)
 
 module "osd_vpc" {
   source = "git::https://github.com/rh-mobb/terraform-provider-osd-google.git//modules/osd-vpc"
@@ -10,13 +10,13 @@ module "osd_vpc" {
   enable_private_cluster = var.enable_psc
 }
 
-data "osdgoogle_machine_types" "baremetal" {
+data "osdgoogle_machine_types" "osd_catalog" {
   region         = var.gcp_region
   gcp_project_id = var.gcp_project_id
 }
 
 locals {
-  machine_type_ids = [for item in data.osdgoogle_machine_types.baremetal.items : item.id]
+  machine_type_ids = [for item in data.osdgoogle_machine_types.osd_catalog.items : item.id]
 }
 
 check "machine_type_available" {

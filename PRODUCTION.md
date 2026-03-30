@@ -29,7 +29,7 @@ Many production items require **reacting to cluster and infrastructure events** 
 
 The controller would need **credentials** (for example **Workload Identity** / GCP SA with **Compute** permissions for routes, firewall, instance groups, and `instances.update` for `canIpForward`) and a **single source of truth** for which CUDN CIDRs and which node pools participate in routing.
 
-This repo does **not** ship a controller; the table above is **design guidance** only.
+A **Python / kopf** prototype lives in [**`controller/python/`**](controller/python/README.md) (quick-win for [PRODUCTION-ROADMAP.md § 4F](cluster_bgp_routing/PRODUCTION-ROADMAP.md)). It watches Nodes, reconciles **canIpForward**, creates/updates the **NCC spoke**, manages **Cloud Router BGP peers**, and creates/deletes **`FRRConfiguration`** CRs. Terraform manages only the **static** infrastructure (NCC hub, Cloud Router, interfaces, firewalls) — the controller owns all dynamic resources to avoid ownership conflicts on re-apply. Production path: port to Go / controller-runtime in `controller/go/`.
 
 ---
 

@@ -37,8 +37,8 @@ variable "gcp_region" {
 
 variable "compute_machine_type" {
   type        = string
-  default     = "c3-standard-192-metal"
-  description = "Bare metal machine type for worker nodes"
+  default     = "n2-standard-4"
+  description = "GCP machine type for the default OSD worker pool (OCM catalog; matches osd-cluster default intent — e.g. n2-standard-4)."
 }
 
 variable "compute_nodes" {
@@ -50,7 +50,7 @@ variable "compute_nodes" {
 variable "availability_zone" {
   type        = string
   default     = "us-central1-a"
-  description = "Single zone for bare metal workers. The machine type must be available in this zone."
+  description = "Single zone for the default worker pool and echo VM (when echo_client_vm_zone is not overridden). The machine type must exist in this zone."
 }
 
 variable "cudn_cidr" {
@@ -79,7 +79,7 @@ variable "routing_worker_target_tags" {
 variable "enable_bgp_routing" {
   type        = bool
   default     = false
-  description = "Enable BGP/NCC/Cloud Router routing. Set true on the second apply after workers are running."
+  description = "Enable BGP/NCC/Cloud Router static infrastructure (hub, router, interfaces, firewalls). The controller manages the dynamic resources (spoke, peers, FRRConfiguration)."
 }
 
 variable "cloud_router_asn" {
@@ -121,7 +121,7 @@ variable "enable_echo_client_vm" {
 variable "echo_client_vm_zone" {
   type        = string
   default     = null
-  description = "Zone for the echo VM. If null, uses the first worker zone."
+  description = "Zone for the echo VM. If null, uses availability_zone."
 }
 
 variable "echo_client_vm_port" {
@@ -145,5 +145,5 @@ variable "enable_psc" {
 variable "ncc_spoke_site_to_site_data_transfer" {
   type        = bool
   default     = false
-  description = "NCC router appliance spoke site_to_site_data_transfer flag."
+  description = "NCC router appliance spoke site_to_site_data_transfer flag (passed to controller via output)."
 }

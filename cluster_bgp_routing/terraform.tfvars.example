@@ -20,13 +20,13 @@ openshift_version = "4.21.3"
 # GCP region
 gcp_region = "us-central1"
 
-# Bare metal machine type for worker nodes
-# compute_machine_type = "c3-standard-192-metal"
+# Default OSD worker pool machine type (OCM catalog)
+# compute_machine_type = "n2-standard-4"
 
 # Number of worker nodes
 # compute_nodes = 3
 
-# Single zone for bare metal (machine type must exist in zone)
+# Single zone for default worker pool (machine type must exist in zone)
 # availability_zone = "us-central1-a"
 
 # CUDN CIDR advertised via BGP
@@ -38,10 +38,11 @@ gcp_region = "us-central1"
 # Optional: network tags on router workers to scope worker→CUDN + BGP:179 rules (empty = all instances)
 # routing_worker_target_tags = ["my-cluster-bgp-router"]
 
-# BGP / NCC / Cloud Router. Leave false for the first apply; set true after workers exist.
+# BGP / NCC / Cloud Router static infra (hub, router, interfaces, firewalls).
+# The controller (controller/python/) manages the spoke, BGP peers, canIpForward, and FRRConfiguration.
 # enable_bgp_routing = false
 
-# Cloud Router and FRR ASNs (private ASNs; align with configure-routing.sh defaults)
+# Cloud Router and FRR ASNs (private ASNs; configure the controller with the same values)
 # cloud_router_asn = 64512
 # frr_asn = 65003
 
@@ -52,7 +53,7 @@ gcp_region = "us-central1"
 # Reserve interface IPs with google_compute_address (default true). Set false for some brownfield upgrades.
 # reserve_cloud_router_interface_ips = true
 
-# NCC router appliance spoke
+# NCC router appliance spoke site_to_site_data_transfer (passed through for the controller)
 # ncc_spoke_site_to_site_data_transfer = false
 
 # Optional echo VM (requires enable_bgp_routing=true)

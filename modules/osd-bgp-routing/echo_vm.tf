@@ -1,15 +1,15 @@
 # Optional echo-client VM for CUDN direct IP verification (icanhazip-clone).
 # From a CUDN pod: curl (with connect/max timeouts) to http://<echo_vm_ip>:<port>/ returns the caller's IP.
 
-check "echo_vm_requires_workers" {
+check "echo_vm_requires_zone" {
   assert {
-    condition     = !var.enable_echo_client_vm || length(var.router_instances) > 0
-    error_message = "enable_echo_client_vm requires router_instances to derive zone when echo_client_vm_zone is null."
+    condition     = !var.enable_echo_client_vm || var.echo_client_vm_zone != null
+    error_message = "enable_echo_client_vm requires echo_client_vm_zone to be set."
   }
 }
 
 locals {
-  echo_vm_zone = var.echo_client_vm_zone != null ? var.echo_client_vm_zone : local.zones[0]
+  echo_vm_zone = var.echo_client_vm_zone
   echo_vm_tags = ["${var.cluster_name}-echo-client"]
 }
 
