@@ -83,12 +83,22 @@ Satisfy **BGP IAM**; set **`TF_VAR_gcp_project_id`** / **`TF_VAR_cluster_name`**
 
 ```bash
 make bgp-apply
+```
+
+**`bgp-apply`** applies WIF, then a single Terraform apply with **`enable_bgp_routing=true`**, **`oc login`**, and **`configure-routing.sh`** (one-time FRR/CUDN/RouteAdvertisements). **It does not start the controller** — Terraform only creates **static** infra (NCC hub, Cloud Router, firewalls). Run the [BGP routing controller](controller/python/README.md) so **dynamic** resources exist (NCC spoke, Cloud Router BGP peers, **`canIpForward`**, **`FRRConfiguration`**):
+
+```bash
+make controller.venv   # first time only — Python venv in controller/python/
+make controller.run    # one-shot reconcile; reads cluster_bgp_routing terraform output + KUBECONFIG / ADC
+```
+
+Use **`make controller.watch`** for a long-lived operator (node lifecycle) on your workstation, or **`kubectl apply -k controller/python/deploy/`** after IAM/WIF and image build — see [controller/python/README.md § Build and deploy](controller/python/README.md#build-and-deploy).
+
+```bash
 make bgp-e2e
 ```
 
-**`bgp-apply`** applies WIF, then a single Terraform apply with **`enable_bgp_routing=true`**, and runs **`configure-routing.sh`** (one-time FRR/CUDN/RouteAdvertisements setup). The [BGP routing controller](controller/python/README.md) manages the dynamic resources (NCC spoke, BGP peers, canIpForward, FRRConfiguration).
-
-**`bgp-e2e`** is the same CUDN **`ping`** / **`curl`** checks as ILB (once BGP is **Established** on workers). Equivalent to **`scripts/e2e-cudn-connectivity.sh -C cluster_bgp_routing`**. Script options: [scripts/README § CUDN connectivity](scripts/README.md#cudn-connectivity-ilb-or-bgp-stack).
+**`bgp-e2e`** is the same CUDN **`ping`** / **`curl`** checks as ILB (after BGP is **Established** on router nodes). Equivalent to **`scripts/e2e-cudn-connectivity.sh -C cluster_bgp_routing`**. Script options: [scripts/README § CUDN connectivity](scripts/README.md#cudn-connectivity-ilb-or-bgp-stack).
 
 **Manual checks:** [cluster_bgp_routing § Quick start (pod and echo VM)](cluster_bgp_routing/README.md#quick-start-pod-and-echo-vm). If the pod cannot reach the VM, run **`./scripts/debug-gcp-bgp.sh`** from **`cluster_bgp_routing/`**.
 
@@ -109,6 +119,8 @@ More detail: [**cluster_bgp_routing/README.md**](cluster_bgp_routing/README.md).
 | `ilb-apply` / `ilb-destroy` | Full ILB flow / destroy `cluster_ilb_routing` then `wif_config` |
 | `ilb-e2e` | Run [`scripts/e2e-cudn-connectivity.sh`](scripts/e2e-cudn-connectivity.sh) against **`cluster_ilb_routing/`** (`oc`, `gcloud`, `jq`, `terraform` required) |
 | `bgp-apply` / `bgp-destroy` | Full BGP flow / destroy `cluster_bgp_routing` then `wif_config` |
+| `controller.venv` / `controller.run` / `controller.watch` | BGP controller Python venv, one-shot reconcile, long-lived operator — see [controller/python/README.md](controller/python/README.md) |
+| `controller.cleanup` / `controller.build` | Teardown controller-managed GCP/K8s resources / build container image |
 | `bgp-e2e` | Same e2e script against **`cluster_bgp_routing/`** |
 | `init`, `plan`, `apply`, `destroy` | **`cluster_ilb_routing/`** only |
 | `bgp.init`, `bgp.plan`, `bgp.apply`, `bgp.destroy` | **`cluster_bgp_routing/`** only |

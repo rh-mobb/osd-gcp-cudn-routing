@@ -6,8 +6,14 @@ set -euo pipefail
 # managed by the controller — this script only handles the static Kubernetes setup.
 #
 # Run AFTER:
-#   1. terraform apply (cluster + BGP routing are up; enable_bgp_routing=true)
+#   1. terraform apply with enable_bgp_routing=true — this finishes the *static* GCP
+#      side (NCC hub, Cloud Router + interfaces, firewalls). Spoke, BGP peers, and
+#      FRRConfiguration CRs are NOT from Terraform; the controller creates them next.
 #   2. oc login to the cluster
+#
+# Run BEFORE the BGP routing controller: this script enables the FRR operator and
+# applies CUDN / RouteAdvertisements so FRRConfiguration CRs (controller-managed)
+# are reconciled and route advertisement can work.
 #
 # Run from cluster_bgp_routing/ so terraform output works.
 #

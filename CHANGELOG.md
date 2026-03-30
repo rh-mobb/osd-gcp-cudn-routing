@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **README:** BGP [quick start](README.md#quick-start--bgp) now includes **`make controller.venv`** / **`make controller.run`** (and pointers to **`controller.watch`** and in-cluster deploy) so the Python BGP controller is explicit after **`make bgp-apply`**; Makefile summary lists **`controller.*`** targets.
+
 - **Controller owns dynamic resources:** NCC spoke, Cloud Router BGP peers, `canIpForward`, and `FRRConfiguration` CRs are now managed exclusively by the controller (`controller/python/`). Terraform manages only the **static** infrastructure (NCC hub, Cloud Router, interfaces, firewalls). This avoids ownership conflicts between Terraform and the controller on re-apply.
 
   **Breaking changes from previous unreleased state:**
