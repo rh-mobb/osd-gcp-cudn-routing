@@ -23,11 +23,12 @@ gcp_region = "us-central1"
 # Default OSD worker pool machine type (OCM catalog)
 # compute_machine_type = "n2-standard-4"
 
-# Number of worker nodes
-# compute_nodes = 3
+# Number of worker nodes (default machine pool)
+# compute_nodes = 6
 
-# Single zone for default worker pool (machine type must exist in zone)
-# availability_zone = "us-central1-a"
+# Worker pool zones: omit or null = first three zones in gcp_region (multi-AZ).
+# Single-AZ example:
+# availability_zones = ["us-central1-a"]
 
 # CUDN CIDR advertised via BGP
 # cudn_cidr = "10.100.0.0/16"

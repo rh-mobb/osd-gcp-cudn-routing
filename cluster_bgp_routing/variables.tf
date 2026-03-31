@@ -43,14 +43,20 @@ variable "compute_machine_type" {
 
 variable "compute_nodes" {
   type        = number
-  default     = 3
-  description = "Number of worker nodes"
+  default     = 6
+  description = "Number of worker nodes in the default machine pool"
 }
 
-variable "availability_zone" {
-  type        = string
-  default     = "us-central1-a"
-  description = "Single zone for the default worker pool and echo VM (when echo_client_vm_zone is not overridden). The machine type must exist in this zone."
+variable "availability_zones" {
+  type        = list(string)
+  default     = null
+  nullable    = true
+  description = "GCP zones for the default worker pool. If null, uses the first three zones in gcp_region (multi-AZ). Set to a one-element list for single-AZ."
+
+  validation {
+    condition     = var.availability_zones == null || length(var.availability_zones) > 0
+    error_message = "availability_zones must be null (use region default) or a non-empty list of zone names."
+  }
 }
 
 variable "cudn_cidr" {
@@ -121,7 +127,7 @@ variable "enable_echo_client_vm" {
 variable "echo_client_vm_zone" {
   type        = string
   default     = null
-  description = "Zone for the echo VM. If null, uses availability_zone."
+  description = "Zone for the echo VM. If null, uses the first entry in the resolved worker-pool zones (see availability_zones)."
 }
 
 variable "echo_client_vm_port" {

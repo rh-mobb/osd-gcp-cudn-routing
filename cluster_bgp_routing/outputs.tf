@@ -9,8 +9,13 @@ output "gcp_region" {
 }
 
 output "availability_zone" {
-  value       = var.availability_zone
-  description = "Single zone used for the default worker pool and the echo VM (when echo_client_vm_zone is null)"
+  value       = local.cluster_availability_zones[0]
+  description = "First zone in the default worker pool (backward compatibility; echo VM default when echo_client_vm_zone is null)"
+}
+
+output "availability_zones" {
+  value       = local.cluster_availability_zones
+  description = "GCP zones used for the default worker pool"
 }
 
 output "cluster_name" {
@@ -87,6 +92,11 @@ output "cloud_router_asn" {
 output "frr_asn" {
   value       = var.frr_asn
   description = "FRR / node BGP ASN"
+}
+
+output "ncc_spoke_site_to_site_data_transfer" {
+  value       = var.ncc_spoke_site_to_site_data_transfer
+  description = "NCC spoke site_to_site_data_transfer (controller ConfigMap NCC_SPOKE_SITE_TO_SITE)"
 }
 
 output "echo_client_http_url" {

@@ -29,6 +29,7 @@ override.tf.json
 Thumbs.db
 
 # Env and secrets
+controller_gcp_iam/credential-config.json
 .env
 .env.*
 .env.*.local

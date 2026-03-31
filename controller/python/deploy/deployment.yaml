@@ -30,6 +30,10 @@ spec:
             - name: gcp-credentials
               mountPath: /var/run/secrets/gcp
               readOnly: true
+            # Projected token aud must match OIDC allowedAudiences (Terraform wif_kubernetes_token_audience; OSD → openshift).
+            - name: k8s-sa-wif-token
+              mountPath: /var/run/secrets/tokens/gcp-wif
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -48,3 +52,10 @@ spec:
         - name: gcp-credentials
           secret:
             secretName: bgp-routing-gcp-credentials
+        - name: k8s-sa-wif-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+                  audience: "__BGP_CONTROLLER_WIF_AUDIENCE__"

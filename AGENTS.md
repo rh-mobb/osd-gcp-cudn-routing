@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository contains Terraform modules and a reference deployment for ILB-based CUDN routing on OpenShift Dedicated (OSD) for Google Cloud. The [terraform-provider-osd-google](https://github.com/rh-mobb/terraform-provider-osd-google) repo provides the `osdgoogle` provider, VPC/cluster modules, and WIF configuration.
+This repository contains Terraform modules and a **BGP** (NCC + Cloud Router) reference deployment for CUDN routing on OpenShift Dedicated (OSD) for Google Cloud. An **ILB** reference stack is kept under **`archive/`**. The [terraform-provider-osd-google](https://github.com/rh-mobb/terraform-provider-osd-google) repo provides the `osdgoogle` provider, VPC/cluster modules, and WIF configuration.
 
 <!-- keel:start - DO NOT EDIT between these markers -->
 ## Rules

@@ -39,7 +39,12 @@ def _log_config(cfg: ControllerConfig) -> None:
     logger.info("  Cloud Router:      %s (%s)", cfg.cloud_router_name, cfg.cloud_router_region)
     logger.info("  NCC hub:           %s", cfg.ncc_hub_name)
     logger.info("  NCC spoke:         %s", cfg.ncc_spoke_name)
-    logger.info("  Node selector:     %s", cfg.node_label_selector)
+    logger.info("  Worker pool label: %s", cfg.node_label_selector)
+    logger.info(
+        "  Router selection:  ROUTER_NODE_COUNT=%s (0=auto 2/3), ROUTER_LABEL_KEY=%s",
+        cfg.router_node_count,
+        cfg.router_label_key,
+    )
     logger.info("  FRR ASN:           %d", cfg.frr_asn)
 
 
@@ -54,8 +59,10 @@ def _run_once() -> int:
     logger.info("Result: %s", result)
     if result.any_change:
         logger.info(
-            "Changes applied — nodes=%d canIpForward=%d spoke=%s peers=%s frr_created=%d frr_deleted=%d",
+            "Changes applied — nodes=%d labels=%d canIpForward=%d spoke=%s peers=%s "
+            "frr_created=%d frr_deleted=%d",
             result.nodes_found,
+            result.router_labels_changed,
             result.can_ip_forward_changed,
             result.spoke_changed,
             result.peers_changed,
@@ -99,7 +106,7 @@ def main() -> None:
     group.add_argument(
         "--cleanup",
         action="store_true",
-        help="Delete all controller-managed resources (BGP peers, NCC spoke, FRRConfigurations) and exit",
+        help="Delete controller Deployment (if present), router node labels, FRR CRs, BGP peers, NCC spoke; exit",
     )
     args = parser.parse_args()
 

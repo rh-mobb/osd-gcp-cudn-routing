@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -18,8 +18,14 @@ class ControllerConfig:
 
     ncc_spoke_site_to_site: bool = False
 
+    # Candidate pool: workers with this label, excluding infra_label_key.
     node_label_key: str = "node-role.kubernetes.io/worker"
     node_label_value: str = ""
+
+    # 0 = auto: 2 nodes if single AZ, 3 if multi-AZ (by topology zone).
+    router_node_count: int = 0
+    router_label_key: str = "node-role.kubernetes.io/bgp-router"
+    infra_label_key: str = "node-role.kubernetes.io/infra"
 
     frr_namespace: str = "openshift-frr-k8s"
     frr_label_key: str = "cudn.redhat.com/bgp-stack"
@@ -27,6 +33,10 @@ class ControllerConfig:
 
     reconcile_interval_seconds: float = 60.0
     debounce_seconds: float = 5.0
+
+    # Used by cleanup to remove the in-cluster Deployment (matches deploy/deployment.yaml).
+    controller_namespace: str = "bgp-routing-system"
+    controller_deployment_name: str = "bgp-routing-controller"
 
     @classmethod
     def from_env(cls) -> ControllerConfig:
@@ -53,6 +63,13 @@ class ControllerConfig:
                 "NODE_LABEL_KEY", "node-role.kubernetes.io/worker"
             ),
             node_label_value=os.environ.get("NODE_LABEL_VALUE", ""),
+            router_node_count=int(os.environ.get("ROUTER_NODE_COUNT", "0")),
+            router_label_key=os.environ.get(
+                "ROUTER_LABEL_KEY", "node-role.kubernetes.io/bgp-router"
+            ),
+            infra_label_key=os.environ.get(
+                "INFRA_EXCLUDE_LABEL_KEY", "node-role.kubernetes.io/infra"
+            ),
             frr_namespace=os.environ.get("FRR_NAMESPACE", "openshift-frr-k8s"),
             frr_label_key=os.environ.get(
                 "FRR_LABEL_KEY", "cudn.redhat.com/bgp-stack"
@@ -62,6 +79,12 @@ class ControllerConfig:
                 os.environ.get("RECONCILE_INTERVAL_SECONDS", "60")
             ),
             debounce_seconds=float(os.environ.get("DEBOUNCE_SECONDS", "5")),
+            controller_namespace=os.environ.get(
+                "CONTROLLER_NAMESPACE", "bgp-routing-system"
+            ),
+            controller_deployment_name=os.environ.get(
+                "CONTROLLER_DEPLOYMENT_NAME", "bgp-routing-controller"
+            ),
         )
 
     @property

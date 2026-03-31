@@ -5,8 +5,9 @@ PYTHON    := $(VENV)/bin/python
 PIP       := $(VENV)/bin/pip
 KOPF      := $(VENV)/bin/kopf
 IMAGE     ?= bgp-routing-controller:latest
-TF_DIR    ?= ../../cluster_bgp_routing
-NS        ?= bgp-routing-system
+TF_DIR     ?= ../../cluster_bgp_routing
+IAM_TF_DIR ?= ../../controller_gcp_iam
+NS         ?= bgp-routing-system
 
 .PHONY: help
 help:
@@ -15,15 +16,16 @@ help:
 	@echo "  venv              Create virtualenv and install requirements"
 	@echo "  run               One-shot reconciliation (reads Terraform outputs for env vars)"
 	@echo "  watch             Run the long-lived operator (kopf event loop)"
-	@echo "  cleanup           Delete all controller-managed resources (peers, spoke, FRR)"
+	@echo "  cleanup           Delete controller Deployment (if any), peers, spoke, FRR, router labels"
 	@echo "  build             Build the container image with podman (local)"
-	@echo "  deploy-openshift  oc apply -k deploy/ + binary build + rollout (run from this dir)"
+	@echo "  deploy-openshift  oc kustomize deploy/ | sed (WIF audience) | oc apply + build + rollout (needs controller_gcp_iam terraform output)"
 	@echo "  lint              Run basic Python checks (syntax)"
 	@echo "  clean             Remove virtualenv"
 	@echo ""
 	@echo "Environment:"
 	@echo "  IMAGE       Container image tag   (default: $(IMAGE))"
-	@echo "  TF_DIR      Terraform output dir   (default: $(TF_DIR))"
+	@echo "  TF_DIR      cluster_bgp_routing dir (default: $(TF_DIR))"
+	@echo "  IAM_TF_DIR  controller_gcp_iam dir for WIF audience (default: $(IAM_TF_DIR))"
 	@echo "  NS          OpenShift namespace    (default: $(NS))"
 	@echo "  KUBECONFIG  Path to kubeconfig     (default: ~/.kube/config)"
 	@echo ""
@@ -134,7 +136,9 @@ build:
 # OpenShift: apply manifests, upload this directory as Docker context, push to internal registry.
 .PHONY: deploy-openshift
 deploy-openshift:
-	oc apply -k deploy/
+	@set -e; \
+	WIF_AUD="$$(cd "$(IAM_TF_DIR)" && terraform output -raw wif_kubernetes_token_audience)"; \
+	oc kustomize deploy/ | sed "s|__BGP_CONTROLLER_WIF_AUDIENCE__|$$WIF_AUD|g" | oc apply -f -
 	oc start-build bgp-routing-controller -n "$(NS)" --from-dir=. --follow
 	oc rollout status "deployment/bgp-routing-controller" -n "$(NS)" --timeout=180s
 

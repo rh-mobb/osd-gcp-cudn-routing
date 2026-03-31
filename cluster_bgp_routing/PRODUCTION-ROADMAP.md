@@ -1,6 +1,6 @@
 # Production Roadmap -- BGP CUDN Routing
 
-Actionable checklist for moving the BGP stack from PoC to production. Read the shared [PRODUCTION.md](../PRODUCTION.md) and BGP-specific [PRODUCTION.md](PRODUCTION.md) first for context on each gap.
+Actionable checklist for moving the BGP stack from PoC to production. Read [PRODUCTION.md](../PRODUCTION.md) first for context on each gap.
 
 Tasks are grouped into phases. Each phase ends with guidance on when to run a **full end-to-end test** (create + verify + destroy, ~2 hours). The goal is to batch related changes so you validate once per phase rather than after every individual task.
 
@@ -14,13 +14,13 @@ Everything here should land before any non-lab traffic touches the stack. Change
 
 ### 1A -- Remove / gate PoC-only assets
 
-- [x] **No open SSH from the internet.** Echo VM has **no `access_config`** (no public IP). SSH uses **Identity-Aware Proxy TCP forwarding**: **`gcloud compute ssh INSTANCE --tunnel-through-iap`**, with a firewall rule allowing **tcp:22** from **`35.235.240.0/20`** to the echo VM’s **network tags** (`google_compute_firewall.echo_client_ssh_iap`, same GCP name `*-echo-client-ssh` as before). See [`modules/osd-bgp-routing/echo_vm.tf`](../modules/osd-bgp-routing/echo_vm.tf) and the ILB twin in [`modules/osd-ilb-routing/echo_vm.tf`](../modules/osd-ilb-routing/echo_vm.tf). Enable the **IAP API** and grant operators **`iap.tunnelInstances.accessViaIAP`** (e.g. **IAP-secured Tunnel User**).
+- [x] **No open SSH from the internet.** Echo VM has **no `access_config`** (no public IP). SSH uses **Identity-Aware Proxy TCP forwarding**: **`gcloud compute ssh INSTANCE --tunnel-through-iap`**, with a firewall rule allowing **tcp:22** from **`35.235.240.0/20`** to the echo VM’s **network tags** (`google_compute_firewall.echo_client_ssh_iap`, same GCP name `*-echo-client-ssh` as before). See [`modules/osd-bgp-routing/echo_vm.tf`](../modules/osd-bgp-routing/echo_vm.tf). Enable the **IAP API** and grant operators **`iap.tunnelInstances.accessViaIAP`** (e.g. **IAP-secured Tunnel User**).
 - [x] **`scripts/e2e-cudn-connectivity.sh`** and cluster README **manual `gcloud compute ssh`** examples pass **`--tunnel-through-iap`**.
-- [x] Module READMEs state that **`enable_echo_client_vm`** is a **lab / validation** fixture (BGP + ILB).
+- [x] Module READMEs state that **`enable_echo_client_vm`** is a **lab / validation** fixture (BGP reference stack).
 
 ### 1B -- Firewall tightening
 
-- [x] **`worker_subnet_to_cudn_firewall_mode`** (`all` \| **`e2etest`** default \| `none`) on **`modules/osd-bgp-routing`** and **`modules/osd-ilb-routing`**: **`e2etest`** allows ICMP + TCP/8080 (icanhazip test pods and echo VM host port) for documented e2e; **`all`** restores broad allow; **`none`** omits the rule (bring your own policy). Cluster roots: **`cluster_*_routing/variables.tf`**, **`main.tf`**.
+- [x] **`worker_subnet_to_cudn_firewall_mode`** (`all` \| **`e2etest`** default \| `none`) on **`modules/osd-bgp-routing`**: **`e2etest`** allows ICMP + TCP/8080 (icanhazip test pods and echo VM host port) for documented e2e; **`all`** restores broad allow; **`none`** omits the rule (bring your own policy). Wired from **`cluster_bgp_routing/`** (`variables.tf`, `main.tf`). *(Archived ILB module mirrors the same variable.)*
 - [x] **`routing_worker_target_tags`** (optional list): when non-empty, scopes **worker→CUDN** and **BGP tcp/179** (BGP module only) with GCP **`target_tags`**. Workers must be given matching **network tags** (e.g. instance template / MachineSet). Empty = subnet-wide match (lab default).
 - [ ] Evaluate whether explicit **egress** rules are needed for CUDN return traffic (depends on org default-deny policy).
 
@@ -35,16 +35,16 @@ Everything here should land before any non-lab traffic touches the stack. Change
 ### 1D -- Variable / doc fixes
 
 - [x] Fix `router_interface_private_ips` description in [`cluster_bgp_routing/variables.tf`](variables.tf) (“exactly 2 elements”).
-- [x] Pin **`hashicorp/google`** to **`>= 5.0, < 8.0`** in **`modules/osd-bgp-routing`**, **`modules/osd-ilb-routing`**, **`cluster_*_routing/providers.tf`**, and **`wif_config/providers.tf`** (caps major 8.x until tested).
+- [x] Pin **`hashicorp/google`** to **`>= 5.0, < 8.0`** in **`modules/osd-bgp-routing`**, **`cluster_bgp_routing/providers.tf`**, and **`wif_config/providers.tf`** (caps major 8.x until tested). *(Archived roots under **`archive/`** use the same constraint.)*
 
 ### 1E -- Terraform state backend
 
 - [x] [docs/terraform-backend-gcs.md](../docs/terraform-backend-gcs.md) — GCS bucket, **`backend "gcs"`**, migrate, locking.
-- [x] **`cluster_bgp_routing/backend.tf.example`**, **`cluster_ilb_routing/backend.tf.example`**; pointers in **`terraform.tfvars.example`** files, [PRODUCTION.md](../PRODUCTION.md), [README.md](../README.md), module READMEs, cluster BGP README.
+- [x] **`cluster_bgp_routing/backend.tf.example`** and pointers in **`terraform.tfvars.example`**, [PRODUCTION.md](../PRODUCTION.md), [README.md](../README.md), module READMEs, cluster BGP README.
 
 ### E2E Checkpoint -- Phase 1
 
-> **Run a full e2e test** after completing all of Phase 1 — e.g. `make bgp-apply`, then **`make controller.run`** (or **`controller.watch`**) so routing converges, then **`make bgp-e2e`**, then **`make controller.cleanup`** and **`make bgp-destroy`**. Skip **`controller.*`** only if you are not exercising the controller. This validates that firewall tightening, echo VM changes, and IP reservation haven't broken the data path. If the firewall changes are the only risky items, you can batch 1A-1E into a single test cycle.
+> **Run a full e2e test** after completing all of Phase 1 — e.g. **`make bgp.run`**, **`make bgp.deploy-controller`** (or **`make controller.run`** / **`controller.watch`**), then **`make bgp.e2e`**, then **`make controller.cleanup`** and **`make bgp.teardown`**. Skip **`controller.*`** only if you are not exercising the controller. This validates that firewall tightening, echo VM changes, and IP reservation haven't broken the data path. If the firewall changes are the only risky items, you can batch 1A-1E into a single test cycle.
 
 ---
 
@@ -52,12 +52,14 @@ Everything here should land before any non-lab traffic touches the stack. Change
 
 These items make the stack survivable on day 2 -- worker replacement procedures, BGP tuning, IAM lockdown. Land them before scaling beyond a small pilot.
 
-### 2A -- Worker lifecycle procedure (documented, not yet automated)
+### 2A -- Worker lifecycle and controller operations (documented)
 
-- [ ] Write a step-by-step runbook for worker replacement: (1) detect new/removed node, (2) `canIpForward` on new GCE instance, (3) `terraform apply` to update NCC spoke + BGP peers, (4) re-run `configure-routing.sh` to emit new `FRRConfiguration`. Include expected timing and blast radius.
-- [ ] Write a runbook for adding a worker to an existing cluster (same steps, but additive).
-- [ ] Write an emergency runbook for force-removing a worker from routing (delete `FRRConfiguration`, update spoke, let BGP withdraw).
-- [ ] Document the window of broken routing (time between node replacement and manual intervention) and acceptable SLA impact.
+With the [**BGP routing controller**](../controller/python/README.md) owning **NCC spoke**, **BGP peers**, **`canIpForward`**, and **`FRRConfiguration`**, runbooks should describe **controller-first** recovery — not **`terraform apply`** for those objects (Terraform owns **static** infra only).
+
+- [ ] Runbook: **healthy controller** — worker replaced or scaled: what the controller does automatically, how to verify (GCP: spoke + peers + `canIpForward`; cluster: `FRRConfiguration`, BGP session), expected convergence time and blast radius.
+- [ ] Runbook: **controller down / degraded** — safe order to restart **`bgp.deploy-controller`**, check WIF **Secret** and **ConfigMap**, temporary mitigations if the **Deployment** cannot run.
+- [ ] Runbook: **emergency** — remove a node from routing (cordone/drain expectations, whether to scale the **Deployment** to zero before manual GCP edits, documenting when **not** to hand-edit spoke/peer state).
+- [ ] Document residual gaps: **`configure-routing.sh`** is still **one-time / CUDN CR** setup (not per-node); new **CUDN CIDRs** need **Terraform + OpenShift** alignment until Phase **3A** (multiple CUDN support) lands.
 
 ### 2B -- BGP session tuning
 
@@ -84,13 +86,13 @@ These items make the stack survivable on day 2 -- worker replacement procedures,
 
 ### E2E Checkpoint -- Phase 2
 
-> **Run a full e2e test** after Phase 2. Focus on: (1) BGP sessions come up with explicit keepalive/BFD settings, (2) firewall rules from Phase 1 still pass, (3) the worker-replacement runbook works end-to-end (simulate by cordoning a node, running the procedure, uncordoning). This is the most important test cycle -- it validates the operational model.
+> **Run a full e2e test** after Phase 2. Focus on: (1) BGP sessions come up with explicit keepalive/BFD settings, (2) firewall rules from Phase 1 still pass, (3) **with the controller running**, worker replacement or scale events reconcile within your documented SLO (simulate node churn; validate runbooks). This cycle validates the operational model.
 
 ---
 
 ## Phase 3: Multi-CUDN and Observability
 
-These items unlock the primary value proposition of BGP over ILB (dynamic multi-CIDR) and add the monitoring needed to operate confidently.
+These items unlock **dynamic multi-CIDR** routing (without static per-prefix VPC routes for each overlay) and add the monitoring needed to operate confidently.
 
 ### 3A -- Multiple CUDN support
 
@@ -122,7 +124,7 @@ These items unlock the primary value proposition of BGP over ILB (dynamic multi-
 
 ### E2E Checkpoint -- Phase 3
 
-> **Run a full e2e test** with **two CUDNs** (e.g., `10.100.0.0/16` and `10.101.0.0/16`). Verify both CIDRs appear as dynamic VPC routes, both are reachable from VPC hosts, and monitoring dashboards show healthy sessions. This validates the multi-CIDR path that justifies choosing BGP over ILB.
+> **Run a full e2e test** with **two CUDNs** (e.g., `10.100.0.0/16` and `10.101.0.0/16`). Verify both CIDRs appear as dynamic VPC routes, both are reachable from VPC hosts, and monitoring dashboards show healthy sessions. This validates the **multi-CIDR** BGP path end to end.
 
 ---
 
@@ -132,7 +134,7 @@ These items are for scaling beyond a pilot. They involve larger structural chang
 
 ### 4A -- Dedicated router node pool
 
-- [ ] Design: optional labeled machine pool (`node-role.kubernetes.io/router`) with smaller instance types dedicated to routing. The controller selects nodes via **`NODE_LABEL_KEY`** / **`NODE_LABEL_VALUE`** — default matches OSD worker nodes (so CUDN routes exist for BGP advertisement); change to a custom label when adding a dedicated pool.
+- [ ] Design: optional labeled machine pool with smaller instance types dedicated to routing. The controller selects **candidates** via **`NODE_LABEL_KEY`** / **`NODE_LABEL_VALUE`** (default worker label) and marks chosen routers with **`ROUTER_LABEL_KEY`** (default **`node-role.kubernetes.io/bgp-router`**); point these at a dedicated pool when you split routers from general workers.
 - [x] Controller watches Nodes by label, discovers GCE instances via `providerID`, reconciles `canIpForward`, NCC spoke, BGP peers, and `FRRConfiguration` CRs.
 - [ ] Document cost/performance trade-offs (fewer hops vs dedicated instances; infra-shared vs isolated routers).
 
@@ -143,7 +145,7 @@ These items are for scaling beyond a pilot. They involve larger structural chang
 
 ### 4C -- Multi-zone support
 
-- [ ] Update `availability_zone` (string) to `availability_zones` (list) in `cluster_bgp_routing/variables.tf` (for the default worker pool; Cloud Router is regional and zone-agnostic).
+- [x] Update `availability_zone` (string) to `availability_zones` (list) in `cluster_bgp_routing/variables.tf` (for the default worker pool; Cloud Router is regional and zone-agnostic).
 - [x] **Controller is zone-agnostic:** discovers zones from `Node.spec.providerID` — no script changes needed for multi-zone.
 - [ ] Verify Cloud Router (regional) handles multi-zone peers correctly (expected: yes).
 - [ ] Test zone-failure scenario: cordon all nodes in one zone, verify routes withdraw and traffic shifts.

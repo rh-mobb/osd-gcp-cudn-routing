@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars or export TF_VAR_* (must match wif_config / cluster_bgp_routing).
+
+# gcp_project_id = "my-osd-gcp-project"
+# cluster_name   = "my-bgp-cluster"
+
+# Optional: align with cluster stack (osdgoogle provider)
+# openshift_version = "4.21.3"
+
+# Optional: if WIF display name is not "<cluster_name>-wif"
+# wif_config_display_name = "custom-wif-name"

@@ -30,7 +30,7 @@ Replace **`?ref=main`** with a **tag** or **SHA** before relying on the module i
 
 ## Requirements
 
-- **IAM:** principals applying this module need NCC and network permissions (e.g. `roles/networkconnectivity.hubAdmin`, `roles/compute.networkAdmin`) in addition to usual Compute permissions. See [ILB-vs-BGP.md](../../ILB-vs-BGP.md). Spoke admin (`roles/networkconnectivity.spokeAdmin`) is needed by the **controller**, not Terraform.
+- **IAM:** principals applying this module need NCC and network permissions (e.g. `roles/networkconnectivity.hubAdmin`, `roles/compute.networkAdmin`) in addition to usual Compute permissions. See [archive/ILB-vs-BGP.md](../../archive/ILB-vs-BGP.md). Spoke admin (`roles/networkconnectivity.spokeAdmin`) is needed by the **controller**, not Terraform.
 - **`canIpForward=true`** on each router-appliance GCE instance — managed by the **controller** (not this module).
 - **Cloud Router ASN:** the Terraform provider requires an **RFC 6996 private ASN** for `google_compute_router.bgp.asn` (default **64512**). The module outputs this value for the controller.
 
@@ -59,4 +59,4 @@ Outputs **`cloud_router_interface_ips`**, **`cloud_router_name`**, **`ncc_hub_na
 
 ## Optional Echo Client VM
 
-Same behavior as [`modules/osd-ilb-routing`](../osd-ilb-routing/README.md): `enable_echo_client_vm`, ports, zone, machine type. The VM is **internal-only**; SSH uses **IAP** (`gcloud compute ssh --tunnel-through-iap`) and a firewall rule for **`35.235.240.0/20`** to the echo VM's network tags. Enable the **Identity-Aware Proxy API** and grant **`iap.tunnelInstances.accessViaIAP`** (or **IAP-secured Tunnel User**) to operators. **Lab / validation fixture only** — disable for production unless you accept the operational surface.
+Same behavior as [`archive/modules/osd-ilb-routing`](../../archive/modules/osd-ilb-routing/README.md): `enable_echo_client_vm`, ports, zone, machine type. The VM is **internal-only**; SSH uses **IAP** (`gcloud compute ssh --tunnel-through-iap`) and a firewall rule for **`35.235.240.0/20`** to the echo VM's network tags. Enable the **Identity-Aware Proxy API** and grant **`iap.tunnelInstances.accessViaIAP`** (or **IAP-secured Tunnel User**) to operators. **Lab / validation fixture only** — disable for production unless you accept the operational surface.

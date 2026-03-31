@@ -25,7 +25,7 @@ Restrict who can read/write objects (e.g. dedicated service account for CI or op
 
 ## 2. Backend block
 
-In the stack directory (for example `cluster_bgp_routing/` or `cluster_ilb_routing/`), add a `terraform` block with a `backend "gcs"` configuration.
+In the stack directory (for example `cluster_bgp_routing/`, or `archive/cluster_ilb_routing/` if you use the archived ILB stack), add a `terraform` block with a `backend "gcs"` configuration.
 
 Do **not** commit real bucket names if they expose internal naming—use **`backend.tf`** in `.gitignore` or inject via CI. The repo ships **`backend.tf.example`** as a template you can copy to **`backend.tf`** and edit.
 
@@ -43,7 +43,7 @@ terraform {
 }
 ```
 
-- **`prefix`**: unique per stack and environment (e.g. `prod/bgp/cluster-foo`). Avoid collisions between ILB and BGP roots and between dev/prod.
+- **`prefix`**: unique per stack and environment (e.g. `prod/bgp/cluster-foo`). Avoid collisions between stacks (BGP vs archived ILB) and between dev/prod.
 - **`credentials`**: rarely needed locally if you use `gcloud auth application-default login` with a user or WIF that can write the bucket.
 
 After adding the backend, run **`terraform init -migrate-state`** once to move local state into the bucket (review the prompt before confirming).

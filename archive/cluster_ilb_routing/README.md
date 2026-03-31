@@ -2,18 +2,18 @@
 
 Root Terraform stack for **ILB-based CUDN routing**: composes Git-sourced **`osd-vpc`** and **`osd-cluster`** with local [**`modules/osd-ilb-routing`**](../modules/osd-ilb-routing/README.md).
 
-**Start here if** you want the simplest GCP path (internal NLB + static VPC route) and are fine with **stub** BGP (`FRRConfiguration` with a dummy neighbor). For dynamic routing via **Cloud Router + NCC**, use [**`cluster_bgp_routing/`**](../cluster_bgp_routing/README.md).
+**Start here if** you want the simplest GCP path (internal NLB + static VPC route) and are fine with **stub** BGP (`FRRConfiguration` with a dummy neighbor). For dynamic routing via **Cloud Router + NCC**, use [**`cluster_bgp_routing/`**](../../cluster_bgp_routing/README.md).
 
 | Topic | Location |
 |-------|----------|
-| Repo overview, both quick starts | [README.md](../README.md) |
+| Repo overview (BGP primary) | [README.md](../../README.md) |
 | ILB vs BGP comparison | [ILB-vs-BGP.md](../ILB-vs-BGP.md) |
-| WIF (apply before this stack) | [wif_config/README.md](../wif_config/README.md) |
+| WIF (apply before this stack) | [wif_config/README.md](../../wif_config/README.md) |
 | ILB module only (reuse elsewhere) | [modules/osd-ilb-routing/README.md](../modules/osd-ilb-routing/README.md) |
-| BGP reference stack | [cluster_bgp_routing/README.md](../cluster_bgp_routing/README.md) |
+| BGP reference stack | [cluster_bgp_routing/README.md](../../cluster_bgp_routing/README.md) |
 | Production (this stack) | [PRODUCTION.md](PRODUCTION.md) |
-| Production (shared + controller) | [PRODUCTION.md](../PRODUCTION.md) |
-| `make ilb-apply` env vars | [scripts/README.md](../scripts/README.md) |
+| Production (shared + controller) | [PRODUCTION.md](../../PRODUCTION.md) |
+| Archived `ilb-apply.sh` env vars | [scripts/README.md](../../scripts/README.md) |
 
 ---
 
@@ -24,21 +24,21 @@ Use this after the second Terraform apply includes **`enable_ilb_routing=true`**
 **Recommended (from repository root):**
 
 ```bash
-make ilb-e2e
+bash scripts/e2e-cudn-connectivity.sh -C "$(pwd)/archive/cluster_ilb_routing"
 ```
 
 **Same from this directory:**
 
 ```bash
-../scripts/e2e-cudn-connectivity.sh
+../../scripts/e2e-cudn-connectivity.sh
 ```
 
 ### Manual `ping` / `curl`
 
-Run from **`cluster_ilb_routing/`** so **`terraform output`** and **`./scripts/…`** resolve.
+Run from **`archive/cluster_ilb_routing/`** so **`terraform output`** and **`./scripts/…`** resolve.
 
 ```bash
-cd cluster_ilb_routing
+cd archive/cluster_ilb_routing
 
 ./scripts/deploy-cudn-test-pods.sh
 
@@ -147,7 +147,7 @@ This design is **not** GKE VPC-native pod CIDRs. It **is** similar to common **i
 
 ## Variables and apply order
 
-- **Authoritative inputs:** [`variables.tf`](variables.tf), [`terraform.tfvars.example`](terraform.tfvars.example). **Firewall:** `worker_subnet_to_cudn_firewall_mode` (`all` \| **`e2etest`** \| `none`), `routing_worker_target_tags` (optional tags on ILB backend workers). **Remote state:** [`backend.tf.example`](backend.tf.example), [docs/terraform-backend-gcs.md](../docs/terraform-backend-gcs.md).
+- **Authoritative inputs:** [`variables.tf`](variables.tf), [`terraform.tfvars.example`](terraform.tfvars.example). **Firewall:** `worker_subnet_to_cudn_firewall_mode` (`all` \| **`e2etest`** \| `none`), `routing_worker_target_tags` (optional tags on ILB backend workers). **Remote state:** [`backend.tf.example`](backend.tf.example), [docs/terraform-backend-gcs.md](../../docs/terraform-backend-gcs.md).
 - **Minimum before apply:** set **`TF_VAR_gcp_project_id`** and **`TF_VAR_cluster_name`** in the environment (or uncomment / set the same in **`terraform.tfvars`**). Values must match **`wif_config`**. Review **`terraform.tfvars.example`** for other knobs (region, node count, routing flags, etc.).
 - **Flow:** WIF first → **first apply** here with `enable_ilb_routing = false` (VPC + cluster only) → wait for **`*-worker-*`** VMs → **second apply** with `enable_ilb_routing = true` (and optionally `enable_echo_client_vm = true`).
 
@@ -158,26 +158,26 @@ This design is **not** GKE VPC-native pod CIDRs. It **is** similar to common **i
 From the **repo root**:
 
 ```bash
-make ilb-apply
-make ilb-e2e          # optional: CUDN pod ↔ echo VM checks
+bash archive/scripts/ilb-apply.sh
+bash scripts/e2e-cudn-connectivity.sh -C "$(pwd)/archive/cluster_ilb_routing"   # optional
 # When finished — Terraform destroys this stack then wif_config/ (clean OpenShift CRs if needed; see § Teardown):
-make ilb-destroy
+bash archive/scripts/ilb-destroy.sh
 ```
 
-Equivalent to: `wif_config` apply → `cluster_ilb_routing` apply → wait workers → apply with `-var='enable_ilb_routing=true' -var='enable_echo_client_vm=true'` → `oc login` → `./scripts/configure-routing.sh` (from this directory in the script). **`ilb-e2e`** runs [`scripts/e2e-cudn-connectivity.sh`](../scripts/e2e-cudn-connectivity.sh) against **`cluster_ilb_routing/`**.
+Equivalent to: `wif_config` apply → this directory’s Terraform apply → wait workers → apply with `-var='enable_ilb_routing=true' -var='enable_echo_client_vm=true'` → `oc login` → `./scripts/configure-routing.sh` (from this directory in the script). The e2e script is [`scripts/e2e-cudn-connectivity.sh`](../../scripts/e2e-cudn-connectivity.sh).
 
-**Destroy:** prefer **`make ilb-destroy`** from the repo root (same as the last line above), or `terraform destroy` here after cleaning OpenShift objects (§ Teardown).
+**Destroy:** prefer **`bash archive/scripts/ilb-destroy.sh`** from the repo root, or `terraform destroy` here after cleaning OpenShift objects (§ Teardown).
 
-**Terraform passthrough:** `make ilb-apply TF_VARS="-var-file=extra.tfvars"` or `EXTRA_TF_VARS="-var=key=value"`. **`OC_LOGIN_EXTRA_ARGS`** for untrusted API certs — [scripts/README.md](../scripts/README.md).
+**Terraform passthrough:** `bash archive/scripts/ilb-apply.sh` with the same `TF_VARS` / `EXTRA_TF_VARS` env pattern as **`make bgp.run`** (see root `Makefile`). **`OC_LOGIN_EXTRA_ARGS`** for untrusted API certs — [scripts/README.md](../../scripts/README.md).
 
 ---
 
-## Manual deployment (equivalent to `ilb-apply`)
+## Manual deployment (equivalent to `ilb.run`)
 
 ### 1. Variables
 
 ```bash
-cd cluster_ilb_routing
+cd archive/cluster_ilb_routing
 cp terraform.tfvars.example terraform.tfvars
 # Set gcp_project_id, cluster_name, …
 ```
@@ -194,7 +194,7 @@ Same `cluster_name` and `gcp_project_id` as this `terraform.tfvars`.
 ### 3. First apply (no ILB)
 
 ```bash
-cd cluster_ilb_routing
+cd archive/cluster_ilb_routing
 terraform init -upgrade
 terraform apply
 ```
@@ -252,7 +252,7 @@ CUDN NAT entries should show a **non-empty** conditional **match**, not `match: 
 
 **Pod ↔ echo VM (`ping` / `curl`):** [§ Quick start (pod and echo VM)](#quick-start-pod-and-echo-vm) (from this directory, **`oc`** logged in).
 
-**One-shot automated check** (runs shared **`deploy-cudn-test-pods.sh`**, then pod ↔ echo VM **`ping`** / **`curl`** with IP assertions): from the repo root **`make ilb-e2e`**, or from this directory **`../scripts/e2e-cudn-connectivity.sh`**.
+**One-shot automated check** (runs shared **`deploy-cudn-test-pods.sh`**, then pod ↔ echo VM **`ping`** / **`curl`** with IP assertions): from the repo root **`bash scripts/e2e-cudn-connectivity.sh -C "$(pwd)/archive/cluster_ilb_routing"`**, or from this directory **`../../scripts/e2e-cudn-connectivity.sh`**.
 
 ### Test pods
 
@@ -284,7 +284,7 @@ Use a small VM on the **worker subnet** to ping/curl CUDN IPs; you need a route 
 |--------|---------|
 | `discover-workers.sh` | Terraform **`data.external`**: `selfLink`, `zone` for workers (`-worker-` in name). |
 | `configure-routing.sh` | Post-apply GCE + OpenShift (see § Manual deployment). |
-| `deploy-cudn-test-pods.sh` | **netshoot-cudn** + **icanhazip-cudn** (exec of [`scripts/deploy-cudn-test-pods.sh`](../scripts/deploy-cudn-test-pods.sh)). |
+| `deploy-cudn-test-pods.sh` | **netshoot-cudn** + **icanhazip-cudn** (exec of [`scripts/deploy-cudn-test-pods.sh`](../../scripts/deploy-cudn-test-pods.sh)). |
 | `cudn-pod-ip.sh` | Resolve primary UDN/CUDN IP from annotations. |
 
 ---
@@ -297,7 +297,7 @@ oc delete clusteruserdefinednetwork ilb-routing-cudn
 oc delete routeadvertisements default
 oc delete frrconfiguration stub-config -n openshift-frr-k8s
 
-cd cluster_ilb_routing
+cd archive/cluster_ilb_routing
 terraform destroy
 ```
 

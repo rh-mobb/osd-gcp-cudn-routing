@@ -2,9 +2,9 @@
 # Tear down cluster_ilb_routing then wif_config (same order as README).
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WIF_DIR="${ROOT}/wif_config"
-CLUSTER_DIR="${ROOT}/cluster_ilb_routing"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+WIF_DIR="${REPO_ROOT}/wif_config"
+CLUSTER_DIR="${REPO_ROOT}/archive/cluster_ilb_routing"
 
 command -v terraform >/dev/null 2>&1 || {
   echo "Error: terraform not found on PATH." >&2

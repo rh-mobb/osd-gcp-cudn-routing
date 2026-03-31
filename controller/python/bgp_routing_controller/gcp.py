@@ -110,7 +110,7 @@ class GCPClient:
             request=network_connectivity_v1.UpdateSpokeRequest(
                 spoke=spoke,
                 update_mask=field_mask_pb2.FieldMask(
-                    paths=["linked_router_appliance_instances"]
+                    paths=["linked_router_appliance_instances.instances"]
                 ),
             )
         )

@@ -1,6 +1,8 @@
 # Production readiness — ILB reference stack
 
-Supplements the repo-wide [PRODUCTION.md](../PRODUCTION.md) (Kubernetes controller concept, shared gaps, operations). Read that first for **cross-cutting** automation and security expectations.
+> **Archived.** The **ILB** path is not maintained as the active reference; use [**cluster_bgp_routing/**](../cluster_bgp_routing/README.md) and the repo [**PRODUCTION.md**](../PRODUCTION.md) for current production-readiness context.
+
+Supplements the repo-wide [PRODUCTION.md](../PRODUCTION.md) (shared gaps, operations). Read that first for **cross-cutting** automation and security expectations.
 
 For PoC limits in this stack, see [Known limitations](README.md#known-limitations-ilb-focused) in [README.md](README.md).
 

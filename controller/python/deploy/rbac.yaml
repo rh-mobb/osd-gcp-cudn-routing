@@ -15,7 +15,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["nodes"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "patch"]
   - apiGroups: ["frrk8s.metallb.io"]
     resources: ["frrconfigurations"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

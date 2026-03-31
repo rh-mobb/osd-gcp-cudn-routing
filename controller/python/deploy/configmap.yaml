@@ -20,11 +20,14 @@ data:
   # NCC spoke site_to_site_data_transfer (must match Terraform ncc_spoke_site_to_site_data_transfer)
   NCC_SPOKE_SITE_TO_SITE: "false"
 
-  # Node label selector — which nodes act as BGP router appliances
-  # Default: OSD worker nodes (CUDN routes are injected where CUDN pods run).
-  # Override for a dedicated routing MachinePool (e.g. node-role.kubernetes.io/router).
+  # Worker candidate pool (must not include infra — controller excludes INFRA_EXCLUDE_LABEL_KEY).
   NODE_LABEL_KEY: "node-role.kubernetes.io/worker"
   NODE_LABEL_VALUE: ""
+
+  # Router node count: 0 = auto (2 if single AZ, 3 if multi-AZ by topology zone).
+  ROUTER_NODE_COUNT: "0"
+  ROUTER_LABEL_KEY: "node-role.kubernetes.io/bgp-router"
+  INFRA_EXCLUDE_LABEL_KEY: "node-role.kubernetes.io/infra"
 
   # Reconciliation tuning
   RECONCILE_INTERVAL_SECONDS: "60"

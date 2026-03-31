@@ -15,12 +15,16 @@ set -euo pipefail
 # applies CUDN / RouteAdvertisements so FRRConfiguration CRs (controller-managed)
 # are reconciled and route advertisement can work.
 #
+# RouteAdvertisements: when advertisements include PodNetwork, OVN-K validating admission
+# requires spec.nodeSelector: {} (pod network must be advertised from all nodes). See
+# references/fix-bgp-ra.md Phase 2 — narrowing nodeSelector with PodNetwork is rejected.
+#
 # Run from anywhere; only `oc` is required on PATH.
 #
 # This script:
 #   - Enables FRR + route advertisements (oc patch)
 #   - Creates CUDN namespace, ClusterUserDefinedNetwork
-#   - Creates RouteAdvertisements (frrConfigurationSelector matches all FRR configs)
+#   - Creates RouteAdvertisements (nodeSelector: {} required with PodNetwork; frrConfigurationSelector {})
 #
 # Usage:
 #   ./configure-routing.sh --project PROJECT --region REGION --cluster CLUSTER \
@@ -125,6 +129,7 @@ EOF
 echo ""
 
 # --- Step 4: RouteAdvertisements ---
+# nodeSelector: {} is required when PodNetwork is advertised (OVN-K validating webhook).
 echo "--- Step 4: Creating RouteAdvertisements ---"
 oc apply -f - <<EOF
 apiVersion: k8s.ovn.org/v1
@@ -147,5 +152,5 @@ echo ""
 
 echo "=== One-time configuration complete ==="
 echo "Deploy the controller (controller/python/) to manage canIpForward, NCC spoke, BGP peers, and FRRConfiguration."
-echo "Optional — from repo root: make bgp-e2e"
+echo "Optional — from repo root: make bgp.e2e"
 echo "Or pods only: ./scripts/deploy-cudn-test-pods.sh -n ${CUDN_NAMESPACE}"

@@ -137,7 +137,7 @@ auto-populates routes from learned BGP prefixes.
 |----------|---------|
 | `Network.operator.openshift.io` patch | Enable FRR + route advertisements |
 | `ClusterUserDefinedNetwork` | Create the CUDN overlay |
-| `FRRConfiguration` (real) | **Per-node** configs: each worker peers only to **its** Cloud Router interface IP; `toReceive: all` on the neighbor; ASN must match Cloud Router (`cloud_router_asn` / `frr_asn` in Terraform). The reference script is [`cluster_bgp_routing/scripts/configure-routing.sh`](cluster_bgp_routing/scripts/configure-routing.sh). |
+| `FRRConfiguration` (real) | **Per-node** configs: each worker peers only to **its** Cloud Router interface IP; `toReceive: all` on the neighbor; ASN must match Cloud Router (`cloud_router_asn` / `frr_asn` in Terraform). The reference script is [`cluster_bgp_routing/scripts/configure-routing.sh`](../cluster_bgp_routing/scripts/configure-routing.sh). |
 | `RouteAdvertisements` | Configure conditional SNAT + trigger FRR prefix advertisement |
 
 ### Additional IAM Requirements
@@ -164,7 +164,7 @@ OSD WIF config:
 | **IAM requirements** | Standard OSD WIF permissions | Additional NCC + network admin roles |
 | **GCP service dependencies** | Compute Engine only | Compute Engine + Network Connectivity Center |
 | **Operational overhead** | Low -- static infrastructure, no protocol state | Higher -- BGP session monitoring, ASN management, NCC lifecycle |
-| **Terraform provider maturity** | `google_compute_*` resources are stable and well-documented | `google_network_connectivity_*` + Router Appliance spokes are less common in examples; reference [**`modules/osd-bgp-routing`**](modules/osd-bgp-routing/README.md) |
+| **Terraform provider maturity** | `google_compute_*` resources are stable and well-documented | `google_network_connectivity_*` + Router Appliance spokes are less common in examples; reference [**`modules/osd-bgp-routing`**](../modules/osd-bgp-routing/README.md) |
 | **Debugging** | `gcloud compute routes list`, ILB health status | `show bgp summary`, `show ip route`, NCC spoke status, Cloud Router logs |
 | **Worker replacement** | Update instance group membership | Update NCC spoke VM list + Cloud Router peers |
 | **Multi-CIDR support** | One VPC route per CIDR (linear scaling) | All CIDRs advertised via single BGP session (constant config) |
@@ -235,11 +235,11 @@ BGP becomes the better choice when:
 The ILB and BGP approaches share the same OpenShift-side **CUDN +
 RouteAdvertisements + conditional SNAT** pattern. Migrating from ILB to BGP involves:
 
-1. **Replace GCP infrastructure**: Swap the ILB module for [**`modules/osd-bgp-routing`**](modules/osd-bgp-routing/README.md) (NCC hub, spoke, Cloud Router, peers) or use the separate reference stack [**`cluster_bgp_routing/`**](cluster_bgp_routing/README.md).
+1. **Replace GCP infrastructure**: Swap the ILB module for [**`modules/osd-bgp-routing`**](../modules/osd-bgp-routing/README.md) (NCC hub, spoke, Cloud Router, peers) or use the separate reference stack [**`cluster_bgp_routing/`**](../cluster_bgp_routing/README.md).
 2. **Update FRRConfiguration**: Replace the **stub** with **per-node** real BGP neighbors (Cloud Router interface IP **per worker**); remove **`stub-config`** and apply configs from the BGP **`configure-routing.sh`** (or equivalent GitOps).
 3. **Remove static VPC route / ILB**: Cloud Router installs routes dynamically; tear down ILB resources to avoid duplicate paths.
 4. **Align CUDN name / namespace** if you use different defaults (**`ilb-routing-cudn`** vs **`bgp-routing-cudn`** in the reference scripts).
 
 The overlay and NAT behavior are the same once RouteAdvertisements and matching CUDN CIDRs are aligned; cutover still requires coordinated GCP and OpenShift changes.
 
-**Reference:** one-shot deploy for BGP — **`make bgp-apply`** (see [cluster_bgp_routing/README.md](cluster_bgp_routing/README.md) and root [README.md](README.md)).
+**Reference:** one-shot deploy for BGP — **`make bgp.run`**, **`make bgp.deploy-controller`**, **`make bgp.e2e`** (see [cluster_bgp_routing/README.md](../cluster_bgp_routing/README.md) and root [README.md](../README.md)).

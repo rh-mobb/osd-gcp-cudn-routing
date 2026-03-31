@@ -3,11 +3,11 @@
 # cluster (pass 2 with ILB + echo VM), oc login, configure-routing.sh
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WIF_DIR="${ROOT}/wif_config"
-CLUSTER_DIR="${ROOT}/cluster_ilb_routing"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+WIF_DIR="${REPO_ROOT}/wif_config"
+CLUSTER_DIR="${REPO_ROOT}/archive/cluster_ilb_routing"
 # shellcheck source=orchestration-lib.sh
-source "${ROOT}/scripts/orchestration-lib.sh"
+source "${REPO_ROOT}/scripts/orchestration-lib.sh"
 
 ILB_APPLY_WORKER_WAIT_ATTEMPTS="${ILB_APPLY_WORKER_WAIT_ATTEMPTS:-60}"
 ILB_APPLY_WORKER_WAIT_SLEEP="${ILB_APPLY_WORKER_WAIT_SLEEP:-30}"
@@ -41,7 +41,7 @@ wait_for_workers() {
     echo "Waiting for workers: have ${n}, need >= ${ILB_APPLY_MIN_WORKERS} (attempt ${i}/${ILB_APPLY_WORKER_WAIT_ATTEMPTS}, sleep ${ILB_APPLY_WORKER_WAIT_SLEEP}s)..."
     sleep "$ILB_APPLY_WORKER_WAIT_SLEEP"
   done
-  echo "Error: timed out waiting for worker VMs. Check gcloud compute instances list and cluster_ilb_routing variables." >&2
+  echo "Error: timed out waiting for worker VMs. Check gcloud compute instances list and archive/cluster_ilb_routing variables." >&2
   exit 1
 }
 
@@ -95,5 +95,5 @@ cd "$CLUSTER_DIR"
   --cluster "$(terraform output -raw cluster_name)"
 
 echo "=== ilb-apply complete ==="
-echo "Optional: make ilb-e2e   # or: cd cluster_ilb_routing && ./scripts/deploy-cudn-test-pods.sh"
-echo "          (README Quick start / oc get ra, etc.)."
+echo "Optional e2e: bash \"${REPO_ROOT}/scripts/e2e-cudn-connectivity.sh\" -C \"${CLUSTER_DIR}\""
+echo "          or: bash \"${REPO_ROOT}/scripts/deploy-cudn-test-pods.sh\" (see archive/cluster_ilb_routing/README.md)."

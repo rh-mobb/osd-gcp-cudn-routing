@@ -1,5 +1,20 @@
 # Phase 1: VPC + OSD cluster (default worker pool; see compute_machine_type)
 
+data "google_compute_zones" "available" {
+  region = var.gcp_region
+}
+
+locals {
+  sorted_region_zones = sort(data.google_compute_zones.available.names)
+  # Default multi-AZ: first three zones in the region (typical OSD / GCP layout).
+  default_availability_zones = (
+    length(local.sorted_region_zones) >= 3
+    ? slice(local.sorted_region_zones, 0, 3)
+    : local.sorted_region_zones
+  )
+  cluster_availability_zones = var.availability_zones != null ? var.availability_zones : local.default_availability_zones
+}
+
 module "osd_vpc" {
   source = "git::https://github.com/rh-mobb/terraform-provider-osd-google.git//modules/osd-vpc"
 
@@ -39,7 +54,8 @@ module "cluster" {
   openshift_version    = var.openshift_version
   compute_nodes        = var.compute_nodes
   compute_machine_type = var.compute_machine_type
-  availability_zones   = [var.availability_zone]
+  multi_az             = length(local.cluster_availability_zones) > 1
+  availability_zones   = local.cluster_availability_zones
   ccs_enabled          = true
 
   gcp_network = {
@@ -86,7 +102,7 @@ module "bgp_routing" {
   ncc_spoke_site_to_site_data_transfer = var.ncc_spoke_site_to_site_data_transfer
 
   enable_echo_client_vm       = var.enable_echo_client_vm
-  echo_client_vm_zone         = var.echo_client_vm_zone != null ? var.echo_client_vm_zone : var.availability_zone
+  echo_client_vm_zone         = var.echo_client_vm_zone != null ? var.echo_client_vm_zone : local.cluster_availability_zones[0]
   echo_client_vm_port         = var.echo_client_vm_port
   echo_client_vm_machine_type = var.echo_client_vm_machine_type
 }

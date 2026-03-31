@@ -4,20 +4,19 @@ Root Terraform stack for **BGP-based CUDN routing**: composes Git-sourced **`osd
 
 The **controller** ([`controller/python/`](../controller/python/README.md)) owns the **dynamic** resources: NCC spoke, Cloud Router BGP peers, `canIpForward`, and `FRRConfiguration` CRs.
 
-**Start here if** you want **dynamic** VPC routes learned from **FRR on workers** (real BGP to Cloud Router). **Higher** operational and IAM surface than ILB — see [ILB-vs-BGP.md](../ILB-vs-BGP.md).
+**Start here if** you want **dynamic** VPC routes learned from **FRR on workers** (real BGP to Cloud Router). **Higher** operational and IAM surface than the archived ILB path — see [archive/ILB-vs-BGP.md](../archive/ILB-vs-BGP.md).
 
-**Scripts under `scripts/`** are **BGP-only copies** (not shared with **`cluster_ilb_routing/`**).
+**Scripts under `scripts/`** are **BGP-only copies** (not shared with **`archive/cluster_ilb_routing/scripts/`**).
 
 | Topic | Location |
 |-------|----------|
-| Repo overview + both quick starts | [README.md](../README.md) |
-| ILB vs BGP | [ILB-vs-BGP.md](../ILB-vs-BGP.md) |
+| Repo overview + BGP quick start | [README.md](../README.md) |
+| ILB vs BGP (archived) | [archive/ILB-vs-BGP.md](../archive/ILB-vs-BGP.md) |
 | WIF | [wif_config/README.md](../wif_config/README.md) |
-| ILB reference stack | [cluster_ilb_routing/README.md](../cluster_ilb_routing/README.md) |
+| ILB reference stack (archived) | [archive/cluster_ilb_routing/README.md](../archive/cluster_ilb_routing/README.md) |
 | BGP module only | [modules/osd-bgp-routing/README.md](../modules/osd-bgp-routing/README.md) |
 | BGP routing controller | [controller/python/README.md](../controller/python/README.md) |
-| Production (this stack) | [PRODUCTION.md](PRODUCTION.md) |
-| Production (shared + controller) | [PRODUCTION.md](../PRODUCTION.md) |
+| Production readiness | [PRODUCTION.md](../PRODUCTION.md) (roadmap: [PRODUCTION-ROADMAP.md](PRODUCTION-ROADMAP.md)) |
 
 ---
 
@@ -28,7 +27,7 @@ Use this after **`enable_bgp_routing=true`**, **controller deployed**, **`config
 **Recommended (from repository root):**
 
 ```bash
-make bgp-e2e
+make bgp.e2e
 ```
 
 **Same from this directory:**
@@ -71,13 +70,13 @@ If **ping** from the VM fails but **curl** works, ICMP may be blocked—use **`c
 ## Architecture (summary)
 
 1. **Terraform** creates the **static** infrastructure: NCC hub, Cloud Router with 2 interfaces (HA pair), firewalls.
-2. The **controller** creates and manages the **dynamic** resources: NCC spoke (router appliance instances), Cloud Router BGP peers (2 per node), `canIpForward` on GCE instances, and `FRRConfiguration` CRs.
-3. Router nodes run **FRR** and advertise CUDN prefixes; the VPC learns **`cudn_cidr`** via BGP.
-4. **OVN** and **RouteAdvertisements** match the ILB stack: **conditional SNAT** on the CUDN.
+2. The **controller** picks **non-infra** workers (by default **2** in one AZ, **3** across multiple AZs), labels them **`node-role.kubernetes.io/bgp-router`**, and manages the **dynamic** resources: NCC spoke (router appliance instances), Cloud Router BGP peers (2 per selected node), `canIpForward` on those GCE instances, and `FRRConfiguration` CRs.
+3. Those **router** nodes run **FRR** and advertise CUDN prefixes; the VPC learns **`cudn_cidr`** via BGP.
+4. **OVN** and **RouteAdvertisements** match the ILB stack: **conditional SNAT** on the CUDN. With **`advertisements: [PodNetwork]`**, OVN-K admission requires **`spec.nodeSelector: {}`** — you cannot narrow RA to **`bgp-router`** nodes only ([references/fix-bgp-ra.md](../references/fix-bgp-ra.md) Phase 2).
 
 **Cloud Router ASN:** default **`64512`** (RFC 6996 private ASN — required by the Terraform provider for **`google_compute_router`**). **`frr_asn`** defaults to **`65003`**; both are outputs consumed by the controller.
 
-Diagram and resource tables: [ILB-vs-BGP.md](../ILB-vs-BGP.md) (**Approach B**).
+Diagram and resource tables: [archive/ILB-vs-BGP.md](../archive/ILB-vs-BGP.md) (**Approach B**).
 
 ---
 
@@ -88,17 +87,17 @@ The identity running **`terraform apply`** needs:
 - `roles/networkconnectivity.hubAdmin`
 - `roles/compute.networkAdmin`
 
-The **controller** needs a separate GCP SA with spoke and peer permissions — see [controller/python/README.md § GCP IAM](../controller/python/README.md#gcp-iam-custom-role--least-privilege).
+The **controller** needs a separate GCP SA with spoke and peer permissions — Terraform stack [**`controller_gcp_iam/`**](../controller_gcp_iam/README.md) (module [**`modules/osd-bgp-controller-iam/`**](../modules/osd-bgp-controller-iam/README.md)); credential JSON via [**`scripts/bgp-controller-gcp-credentials.sh`**](../scripts/bgp-controller-gcp-credentials.sh). See [controller/python/README.md](../controller/python/README.md).
 
-Details: [ILB-vs-BGP.md § Additional IAM Requirements](../ILB-vs-BGP.md#additional-iam-requirements).
+Details: [archive/ILB-vs-BGP.md § Additional IAM Requirements](../archive/ILB-vs-BGP.md#additional-iam-requirements).
 
 ---
 
 ## Variables and apply order
 
-- **Authoritative inputs:** [`variables.tf`](variables.tf), [`terraform.tfvars.example`](terraform.tfvars.example). **Firewall:** `worker_subnet_to_cudn_firewall_mode` (`all` \| **`e2etest`** \| `none`), `routing_worker_target_tags` (optional GCP network tags for router nodes). **Cloud Router IPs:** `reserve_cloud_router_interface_ips` (default **true**). **Remote state:** [`backend.tf.example`](backend.tf.example), [docs/terraform-backend-gcs.md](../docs/terraform-backend-gcs.md).
+- **Authoritative inputs:** [`variables.tf`](variables.tf), [`terraform.tfvars.example`](terraform.tfvars.example). **Workers:** default **6** nodes, **multi-AZ** when `availability_zones` is omitted (**first three zones** in `gcp_region`); set `availability_zones` to a one-element list for single-AZ. **Firewall:** `worker_subnet_to_cudn_firewall_mode` (`all` \| **`e2etest`** \| `none`), `routing_worker_target_tags` (optional GCP network tags for router nodes). **Cloud Router IPs:** `reserve_cloud_router_interface_ips` (default **true**). **Remote state:** [`backend.tf.example`](backend.tf.example), [docs/terraform-backend-gcs.md](../docs/terraform-backend-gcs.md).
 - **Minimum before apply:** set **`TF_VAR_gcp_project_id`** and **`TF_VAR_cluster_name`** (or **`terraform.tfvars`**) so they match **`wif_config`**. Use **`terraform.tfvars.example`** as a guide for additional variables (region, ASNs, BGP toggles, node counts, etc.).
-- **Flow:** WIF first → **single apply** with **`enable_bgp_routing = true`** (and optionally **`enable_echo_client_vm = true`**) → `oc login` → **`configure-routing.sh`** (one-time: FRR enable, CUDN, RouteAdvertisements) → **deploy the controller** (see [controller/python/README.md](../controller/python/README.md)).
+- **Flow:** WIF first → **single apply** with **`enable_bgp_routing = true`** (and optionally **`enable_echo_client_vm = true`**) → `oc login` → **`configure-routing.sh`** (one-time: FRR enable, CUDN, RouteAdvertisements) → **`make bgp.deploy-controller`** (IAM + Secret + ConfigMap from **`terraform output`** + in-cluster build; see [root README quick start](../README.md#quick-start--bgp)) — or manual steps in [controller/python/README.md](../controller/python/README.md).
 
 **Optional:** **`router_interface_private_ips`** — explicit Cloud Router interface addresses (exactly 2 elements: primary + redundant). Otherwise IPs are **`cidrhost(worker_subnet, bgp_interface_host_offset)`** and **`bgp_interface_host_offset + 1`** — avoid collisions with other hosts in the subnet.
 
@@ -109,16 +108,17 @@ Details: [ILB-vs-BGP.md § Additional IAM Requirements](../ILB-vs-BGP.md#additio
 From the **repo root**:
 
 ```bash
-make bgp-apply
-make bgp-e2e          # optional: CUDN pod ↔ echo VM checks (after controller deployed + BGP Established)
+make bgp.run
+make bgp.deploy-controller   # in-cluster controller (no manual ConfigMap / credential steps)
+make bgp.e2e                 # optional: CUDN pod ↔ echo VM (after BGP Established)
 # When finished — remove controller-managed peers/spoke/FRR if you used the controller, then:
 make controller.cleanup   # skip if you never reconciled with the BGP controller
-make bgp-destroy
+make bgp.teardown
 ```
 
-**Destroy:** From the repo root, **`make controller.cleanup`** when the controller was used, then **`make bgp-destroy`** (Terraform: this stack then **`wif_config/`**). Remove any remaining OpenShift objects ([§ Teardown](#teardown)).
+**Destroy:** From the repo root, **`make controller.cleanup`** when the controller was used, then **`make bgp.teardown`** (Terraform: this stack then **`wif_config/`**). Remove any remaining OpenShift objects ([§ Teardown](#teardown)).
 
-**Terraform passthrough:** `make bgp-apply TF_VARS="..." EXTRA_TF_VARS="..."`.
+**Terraform passthrough:** `make bgp.run TF_VARS="..." EXTRA_TF_VARS="..."`.
 
 ---
 
@@ -132,7 +132,7 @@ cp terraform.tfvars.example terraform.tfvars
 # Set gcp_project_id, cluster_name, …
 ```
 
-Use a **separate** `terraform.tfvars` from **`cluster_ilb_routing/`** if you maintain both stacks (different state).
+Use a **separate** `terraform.tfvars` (and state) from **`archive/cluster_ilb_routing/`** only if you still run the archived ILB stack in parallel.
 
 ### 2. WIF
 
@@ -213,7 +213,7 @@ oc exec -n openshift-ovn-kubernetes \
 
 Same **`ping`** / **`curl`** sequence as [Quick start (pod and echo VM)](#quick-start-pod-and-echo-vm) (run from **`cluster_bgp_routing/`**). Traffic to CUDN follows **learned BGP routes** (not static route → ILB).
 
-**Automated:** **`make bgp-e2e`** from the repo root, or **`../scripts/e2e-cudn-connectivity.sh`** from this directory.
+**Automated:** **`make bgp.e2e`** from the repo root, or **`../scripts/e2e-cudn-connectivity.sh`** from this directory.
 
 **Firewalls:** module allows **worker subnet → CUDN** and **TCP 179** within the worker subnet for BGP.
 
@@ -224,7 +224,7 @@ Same **`ping`** / **`curl`** sequence as [Quick start (pod and echo VM)](#quick-
 | Script | Purpose |
 |--------|---------|
 | `configure-routing.sh` | **One-time setup:** FRR enable, CUDN namespace + `ClusterUserDefinedNetwork`, `RouteAdvertisements`. Requires **`oc`** in PATH. |
-| `deploy-cudn-test-pods.sh` | Test pods (exec of [`scripts/deploy-cudn-test-pods.sh`](../scripts/deploy-cudn-test-pods.sh)). |
+| `deploy-cudn-test-pods.sh` | Test pods (exec of [`scripts/deploy-cudn-test-pods.sh`](../scripts/deploy-cudn-test-pods.sh)). **`--avoid-bgp-router`** / **`CUDN_TEST_PODS_AVOID_BGP_ROUTERS`** — [references/fix-bgp-ra.md](../references/fix-bgp-ra.md) Phase 3. |
 | `cudn-pod-ip.sh` | CUDN IP from annotations (independent copy). |
 | `debug-gcp-bgp.sh` | **`gcloud`** diagnostics: Cloud Router **BGP status**, NCC hub/spoke, **routes** for **`cudn_cidr`**, module **firewall** rules. Run from **`cluster_bgp_routing/`** (`terraform output` must include **`cloud_router_id`**). Optional **`--dir`**. |
 
@@ -235,8 +235,8 @@ Same **`ping`** / **`curl`** sequence as [Quick start (pod and echo VM)](#quick-
 From the **repo root** (recommended):
 
 ```bash
-make controller.cleanup   # clears Cloud Router peers, NCC spoke, labeled FRRConfiguration (needs terraform output + GCP + kube)
-make bgp-destroy          # terraform destroy cluster_bgp_routing/ then wif_config/
+make controller.cleanup   # deletes controller Deployment if present; peers, NCC spoke, FRR CRs, router labels (terraform output + GCP + kube)
+make bgp.teardown          # terraform destroy cluster_bgp_routing/ then wif_config/
 ```
 
 **OpenShift cleanup** (from **repo root**; order can vary; cluster may already be gone):
@@ -256,7 +256,7 @@ kubectl delete -k controller/python/deploy/ 2>/dev/null || true
 
 | Symptom | Check |
 |---------|--------|
-| **No FRRConfiguration CRs** | Controller deployed and running? Nodes have the expected label (`node-role.kubernetes.io/worker` by default)? Check controller logs. |
+| **No FRRConfiguration CRs** | Controller deployed and running? Enough **non-infra** workers with `node-role.kubernetes.io/worker`? After reconcile, **two or three** nodes should have **`node-role.kubernetes.io/bgp-router`**. Check controller logs. |
 | **NCC spoke missing** | Controller creates the spoke on first reconciliation. Check controller logs for GCP IAM errors (`networkconnectivity.spokes.create`). |
 | **Terraform NCC / router errors** | IAM roles ([IAM](#iam-prerequisites)); API enablement; quota. |
 | **BGP session down** | **`./scripts/debug-gcp-bgp.sh`**; **`gcloud routers get-status`** + **`oc debug node/…`** — from the worker host, **`nc -vz CLOUD_ROUTER_IP 179`** should succeed. If TCP works but FRR stays **Active** with **No path to specified Neighbor**, workers likely use a **/32** on **br-ex** (GCP); the controller appends **`disable-connected-check`** for each Cloud Router neighbor (**`spec.raw`**). Also verify firewall **tcp/179**, **neighbor** IPs, and **ASN** (**`cloud_router_asn`** / **`frr_asn`**). |
@@ -283,4 +283,4 @@ Shared with ILB where applicable (**`canIpForward`**, worker replacement). **BGP
 
 ## Makefile targets for this directory only
 
-From repo root: **`make bgp.init`**, **`bgp.plan`**, **`bgp.apply`** run Terraform **only** in **`cluster_bgp_routing/`**. Use **`make bgp-destroy`** (after **`controller.cleanup`** if you used the controller) to destroy this stack and **`wif_config/`** together.
+From repo root: **`make bgp.init`**, **`bgp.plan`**, **`bgp.apply`** run Terraform **only** in **`cluster_bgp_routing/`**. Use **`make bgp.teardown`** (after **`controller.cleanup`** if you used the controller) to destroy this stack and **`wif_config/`** together.

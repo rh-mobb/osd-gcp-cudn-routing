@@ -10,7 +10,7 @@ Set **`ref`** in the module source to a **Git tag** or **commit SHA** for reprod
 
 ```hcl
 module "ilb_routing" {
-  source = "git::https://github.com/rh-mobb/osd-gcp-cudn-routing.git//modules/osd-ilb-routing?ref=main"
+  source = "git::https://github.com/rh-mobb/osd-gcp-cudn-routing.git//archive/modules/osd-ilb-routing?ref=main"
 
   project_id   = "my-project"
   region       = "us-central1"
@@ -27,7 +27,7 @@ module "ilb_routing" {
 
 Replace **`?ref=main`** with a **tag** (e.g. `?ref=v0.1.0`) or **SHA** before relying on the module in long-lived environments.
 
-**Remote state:** for shared environments use a **GCS** backend — [docs/terraform-backend-gcs.md](../../docs/terraform-backend-gcs.md), [**cluster_ilb_routing/backend.tf.example**](../../cluster_ilb_routing/backend.tf.example).
+**Remote state:** for shared environments use a **GCS** backend — [docs/terraform-backend-gcs.md](../../../docs/terraform-backend-gcs.md), [**archive/cluster_ilb_routing/backend.tf.example**](../cluster_ilb_routing/backend.tf.example).
 
 ## Resources Created
 
@@ -60,4 +60,4 @@ When `enable_echo_client_vm = true`, the module creates a **CentOS Stream 9** VM
 
 Worker instances must have `canIpForward=true` set at the GCE level
 so they can accept and forward packets destined for pod IPs. This is
-not managed by this module. See [cluster_ilb_routing/README.md](https://github.com/rh-mobb/osd-gcp-cudn-routing/blob/main/cluster_ilb_routing/README.md) (**`configure-routing.sh`**, verification, teardown) and the repository [README.md](https://github.com/rh-mobb/osd-gcp-cudn-routing/blob/main/README.md) for the overview.
+not managed by this module. See [archive/cluster_ilb_routing/README.md](https://github.com/rh-mobb/osd-gcp-cudn-routing/blob/main/archive/cluster_ilb_routing/README.md) (**`configure-routing.sh`**, verification, teardown) and the repository [README.md](https://github.com/rh-mobb/osd-gcp-cudn-routing/blob/main/README.md) for the overview.
