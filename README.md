@@ -56,6 +56,8 @@ export TF_VAR_gcp_project_id="my-gcp-project"
 export TF_VAR_cluster_name="my-cluster-name"
 ```
 
+> Note: the controller can take some time to reconcile the resources, enable ip forwarding and set up BGP routes.  Be patient.  Similarily the e2e tests can take some time for the routes for a pod to be advertised, if the e2e script fails, wait a minute and try again.
+
 ```bash
 make bgp.run
 make bgp.deploy-controller
