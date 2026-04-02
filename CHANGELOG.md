@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`scripts/deploy-cudn-test-pods.sh`** — with **`--require-bgp-router`**, **no longer deletes** test pods by default (avoids new CUDN IPs and BGP/GCP reconvergence on every e2e). Opt-in **`--recreate-test-pods`** or **`CUDN_TEST_PODS_RECREATE=1`** to delete **`netshoot-cudn`** / **`icanhazip-cudn`** before apply when the pod spec must be replaced (immutable fields). **`scripts/e2e-cudn-connectivity.sh`** adds **`--recreate-test-pods`** / **`CUDN_E2E_RECREATE_TEST_PODS`**.
+
+- **`scripts/e2e-cudn-connectivity.sh`** — HTTP curl probes (**pod→VM** and **VM→pod**) use **more patient defaults** (12 attempts, 10s connect / 25s max per try, 3s sleep) and optional env **`CUDN_E2E_HTTP_CURL_ATTEMPTS`**, **`CUDN_E2E_HTTP_CONNECT_TIMEOUT`**, **`CUDN_E2E_HTTP_MAX_TIME`**, **`CUDN_E2E_HTTP_RETRY_SLEEP`** for flaky BGP/convergence. Connectivity steps **1–3** still always run; **Summary** + **exit 1** unchanged (except **`--allow-icmp-fail`**).
+
+- **BGP e2e pod placement:** **`make bgp.e2e`** passes **`--require-bgp-router`** so test pods use **nodeAffinity** **`Exists`** on **`node-role.kubernetes.io/bgp-router`**, with a post-schedule check. Removed **`--avoid-bgp-router`**, **`CUDN_TEST_PODS_AVOID_BGP_ROUTERS`**, and **`CUDN_E2E_POD_AVOID_BGP_ROUTERS`**. ILB / archive e2e runs without the flag (no router label required).
+
+- **BGP controller — all candidate workers are BGP routers** — removed **`ROUTER_NODE_COUNT`** and subset selection; every node matching **`NODE_LABEL_KEY`** / **`NODE_LABEL_VALUE`** (excluding infra) gets **`canIpForward`**, NCC router-appliance membership, Cloud Router peers, and an **`FRRConfiguration`**. Use a custom label selector to limit which pools participate.
+
+- **NCC spokes — multi-spoke + prefix config** — **`NCC_SPOKE_NAME`** / Terraform output **`ncc_spoke_name`** replaced by **`NCC_SPOKE_PREFIX`** / **`ncc_spoke_prefix`**. The controller creates spokes **`{prefix}-0`**, **`{prefix}-1`**, … with up to **8** instances per spoke (GCP limit) and deletes stale numbered spokes when workers are removed.
+
+### Added
+
+- **`KNOWLEDGE.md`** — documents verified facts and unverified assumptions about CUDN BGP routing across GCP and AWS, including the all-nodes-as-peers requirement discovered through cross-team collaboration and the AWS reference implementation (`references/rosa-bgp`).
+
+- **`ARCHITECTURE.md`** — definitive architecture document covering the all-workers-as-BGP-peers design, GCP and OpenShift component breakdown, data plane flows (ingress/egress/intra-CUDN), control plane reconciliation, VM-specific considerations, and comparison with the AWS ROSA reference implementation.
+
+### Changed
+
+- **`KNOWLEDGE.md` and `ARCHITECTURE.md` consistency fixes** — corrected FRR daemon scope (runs on all nodes, not just BGP-peered nodes); clarified target vs current state for all-workers design; fixed ECMP description to note overlay forwarding is still needed for most flows; expanded egress data path to show OVN→host routing table transition; added `routingViaHost` and ECMP overlay forwarding as open questions; reframed bare-metal language as a support boundary, not a technical limitation.
+
 - **`cluster_bgp_routing` default cluster:** **multi-AZ** default worker pool (**first three zones** in `gcp_region` via `google_compute_zones`), **`compute_nodes` = 6**, and explicit **`multi_az`** passed to **`osd-cluster`**. Replaced variable **`availability_zone`** with optional **`availability_zones`** (`null` = region default; one-element list = single-AZ). New Terraform output **`availability_zones`**; **`availability_zone`** remains as the **first** zone for backward compatibility.
 
 - **RouteAdvertisements / fix-bgp-ra Phase 2:** Documented that **OVN-K validating admission rejects** **`spec.nodeSelector`** other than empty when **`advertisements`** includes **`PodNetwork`** (`If 'PodNetwork' is selected for advertisement, a 'nodeSelector' can't be specified as it needs to be advertised on all nodes`). [`cluster_bgp_routing/scripts/configure-routing.sh`](cluster_bgp_routing/scripts/configure-routing.sh) keeps **`nodeSelector: {}`** with an inline comment; [references/fix-bgp-ra.md](references/fix-bgp-ra.md) Phase 2 updated (**primary fix via RA nodeSelector is not applicable** on current OCP with this RA shape). Same rule is noted in [archive/cluster_ilb_routing/scripts/configure-routing.sh](archive/cluster_ilb_routing/scripts/configure-routing.sh).
@@ -16,8 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Production docs:** Single root [PRODUCTION.md](PRODUCTION.md); former **`cluster_bgp_routing/PRODUCTION.md`** merged in and **removed**. Phased checklist: [cluster_bgp_routing/PRODUCTION-ROADMAP.md](cluster_bgp_routing/PRODUCTION-ROADMAP.md). Archived ILB: [archive/cluster_ilb_routing/PRODUCTION.md](archive/cluster_ilb_routing/PRODUCTION.md). Roadmap **§ 2A** uses **controller-first** worker lifecycle runbooks.
 
 ### Added
-
-- **Phase 3 (fix-bgp-ra):** [`scripts/deploy-cudn-test-pods.sh`](scripts/deploy-cudn-test-pods.sh) **`--avoid-bgp-router`** / **`CUDN_TEST_PODS_AVOID_BGP_ROUTERS`** — schedule test pods on nodes **without** **`node-role.kubernetes.io/bgp-router`**; [`scripts/e2e-cudn-connectivity.sh`](scripts/e2e-cudn-connectivity.sh) **`--avoid-bgp-router`** / **`CUDN_E2E_POD_AVOID_BGP_ROUTERS`**, placement verification, and **`Makefile`** **`help`** note (**`CUDN_E2E_POD_AVOID_BGP_ROUTERS=1 make bgp.e2e`**).
 
 - **`make bgp.phase1-baseline`** / [`scripts/bgp-phase1-baseline.sh`](scripts/bgp-phase1-baseline.sh) — [references/fix-bgp-ra.md](references/fix-bgp-ra.md) **Phase 1** baseline (router nodes, **RouteAdvertisements** `nodeSelector`, **FRRConfiguration** list, **`debug-gcp-bgp.sh`**). Optional **`--e2e`**, **`--skip-gcp`**.
 

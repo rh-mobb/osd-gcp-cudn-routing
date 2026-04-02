@@ -55,13 +55,9 @@ def startup(settings: kopf.OperatorSettings, **kwargs) -> None:
     logger.info("  GCP project:       %s", _cfg.gcp_project)
     logger.info("  Cloud Router:      %s (%s)", _cfg.cloud_router_name, _cfg.cloud_router_region)
     logger.info("  NCC hub:           %s", _cfg.ncc_hub_name)
-    logger.info("  NCC spoke:         %s", _cfg.ncc_spoke_name)
+    logger.info("  NCC spoke prefix:  %s (spokes {prefix}-0, {prefix}-1, …)", _cfg.ncc_spoke_prefix)
     logger.info("  Worker pool label: %s", _cfg.node_label_selector)
-    logger.info(
-        "  Router selection:  ROUTER_NODE_COUNT=%s ROUTER_LABEL_KEY=%s",
-        _cfg.router_node_count,
-        _cfg.router_label_key,
-    )
+    logger.info("  Router label key:  %s", _cfg.router_label_key)
     logger.info("  FRR ASN:           %d", _cfg.frr_asn)
 
     _reconciler.reconcile()

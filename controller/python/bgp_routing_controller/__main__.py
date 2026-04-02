@@ -38,13 +38,9 @@ def _log_config(cfg: ControllerConfig) -> None:
     logger.info("  GCP project:       %s", cfg.gcp_project)
     logger.info("  Cloud Router:      %s (%s)", cfg.cloud_router_name, cfg.cloud_router_region)
     logger.info("  NCC hub:           %s", cfg.ncc_hub_name)
-    logger.info("  NCC spoke:         %s", cfg.ncc_spoke_name)
+    logger.info("  NCC spoke prefix:  %s (spokes {prefix}-0, …)", cfg.ncc_spoke_prefix)
     logger.info("  Worker pool label: %s", cfg.node_label_selector)
-    logger.info(
-        "  Router selection:  ROUTER_NODE_COUNT=%s (0=auto 2/3), ROUTER_LABEL_KEY=%s",
-        cfg.router_node_count,
-        cfg.router_label_key,
-    )
+    logger.info("  Router label key:  %s", cfg.router_label_key)
     logger.info("  FRR ASN:           %d", cfg.frr_asn)
 
 
@@ -59,12 +55,12 @@ def _run_once() -> int:
     logger.info("Result: %s", result)
     if result.any_change:
         logger.info(
-            "Changes applied — nodes=%d labels=%d canIpForward=%d spoke=%s peers=%s "
+            "Changes applied — nodes=%d labels=%d canIpForward=%d spokes_changed=%d peers=%s "
             "frr_created=%d frr_deleted=%d",
             result.nodes_found,
             result.router_labels_changed,
             result.can_ip_forward_changed,
-            result.spoke_changed,
+            result.spokes_changed,
             result.peers_changed,
             result.frr_created,
             result.frr_deleted,
@@ -106,7 +102,7 @@ def main() -> None:
     group.add_argument(
         "--cleanup",
         action="store_true",
-        help="Delete controller Deployment (if present), router node labels, FRR CRs, BGP peers, NCC spoke; exit",
+        help="Delete controller Deployment (if present), router node labels, FRR CRs, BGP peers, all NCC spokes for prefix; exit",
     )
     args = parser.parse_args()
 

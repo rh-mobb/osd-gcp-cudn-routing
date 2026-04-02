@@ -39,10 +39,10 @@ CLUSTER="$(echo "$TF_JSON" | jq -r '.cluster_name.value')"
 CUDN_CIDR="$(echo "$TF_JSON" | jq -r '.cudn_cidr.value')"
 ROUTER="$(echo "$TF_JSON" | jq -r '.cloud_router_name.value // empty')"
 NCC_HUB="$(echo "$TF_JSON" | jq -r '.ncc_hub_name.value // empty')"
-NCC_SPOKE="$(echo "$TF_JSON" | jq -r '.ncc_spoke_name.value // empty')"
+NCC_SPOKE_PREFIX="$(echo "$TF_JSON" | jq -r '.ncc_spoke_prefix.value // empty')"
 [[ -z "$ROUTER" ]] && ROUTER="${CLUSTER}-cudn-cr"
 [[ -z "$NCC_HUB" ]] && NCC_HUB="${CLUSTER}-ncc-hub"
-[[ -z "$NCC_SPOKE" ]] && NCC_SPOKE="${CLUSTER}-ra-spoke"
+[[ -z "$NCC_SPOKE_PREFIX" ]] && NCC_SPOKE_PREFIX="${CLUSTER}-ra-spoke"
 FW_BGP="${CLUSTER}-bgp-worker-subnet"
 FW_CUDN="${CLUSTER}-worker-subnet-to-cudn"
 
@@ -61,7 +61,7 @@ echo "$TF_JSON" | jq -r '
     "- cudn_cidr: \(.cudn_cidr.value)",
     "- cloud_router_interface_ips: \(.cloud_router_interface_ips.value | @json)",
     "- ncc_hub_name: \(.ncc_hub_name.value // "n/a")",
-    "- ncc_spoke_name: \(.ncc_spoke_name.value // "n/a")"
+    "- ncc_spoke_prefix: \(.ncc_spoke_prefix.value // "n/a")"
   ] | .[]'
 
 section "Cloud Router BGP status ($ROUTER)"
@@ -76,9 +76,25 @@ section "NCC hub ($NCC_HUB)"
 gcloud network-connectivity hubs describe "$NCC_HUB" \
   --project="$GCP_PROJECT" --format=yaml
 
-section "NCC spoke ($NCC_SPOKE, $GCP_REGION)"
-gcloud network-connectivity spokes describe "$NCC_SPOKE" \
-  --region="$GCP_REGION" --project="$GCP_PROJECT" --format=yaml
+section "NCC spokes (prefix ${NCC_SPOKE_PREFIX}-N, $GCP_REGION)"
+FOUND=0
+while IFS= read -r full; do
+  [[ -z "$full" ]] && continue
+  base="${full##*/}"
+  [[ "$base" == "${NCC_SPOKE_PREFIX}-"* ]] || continue
+  suf="${base#${NCC_SPOKE_PREFIX}-}"
+  [[ "$suf" =~ ^[0-9]+$ ]] || continue
+  FOUND=1
+  section "NCC spoke ($base)"
+  gcloud network-connectivity spokes describe "$base" \
+    --region="$GCP_REGION" --project="$GCP_PROJECT" --format=yaml
+done < <(gcloud network-connectivity spokes list \
+  --region="$GCP_REGION" \
+  --project="$GCP_PROJECT" \
+  --format="value(name)" 2>/dev/null || true)
+if [[ "$FOUND" -eq 0 ]]; then
+  echo "(no spokes matching prefix ${NCC_SPOKE_PREFIX}-<number> — controller may not have reconciled yet)"
+fi
 
 section "VPC routes (dest $CUDN_CIDR)"
 ROUTE_COUNT="$(gcloud compute routes list --project="$GCP_PROJECT" \

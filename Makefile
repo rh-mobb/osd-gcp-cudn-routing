@@ -36,14 +36,14 @@ help:
 	@echo "  bgp.run       full deploy: WIF, cluster single apply (BGP+NCC+echo VM), oc login, cluster_bgp_routing configure-routing.sh"
 	@echo "  bgp.teardown  terraform destroy $(CLUSTER_BGP_DIR)/ then $(WIF_DIR)/ (-auto-approve); run controller.cleanup first if you used the controller"
 	@echo "  bgp.e2e       CUDN pod ↔ echo VM checks ($(CLUSTER_BGP_DIR)/; requires oc + gcloud logged in)"
-	@echo "                strict Phase 3: CUDN_E2E_POD_AVOID_BGP_ROUTERS=1 make bgp.e2e (pods not on bgp-router nodes)"
+	@echo "                schedules test pods on nodes with node-role.kubernetes.io/bgp-router"
 	@echo "  bgp.phase1-baseline  fix-bgp-ra Phase 1: router nodes, RA nodeSelector, FRR CRs, debug-gcp-bgp (oc + terraform + gcloud)"
 	@echo "  bgp.deploy-controller  After bgp.run: IAM + WIF Secret + ConfigMap from TF + in-cluster controller"
 	@echo ""
 	@echo "  controller.venv      Create Python venv for the BGP routing controller"
 	@echo "  controller.run       One-shot reconciliation (reads terraform output)"
 	@echo "  controller.watch     Run the long-lived operator (kopf event loop)"
-	@echo "  controller.cleanup   Delete controller Deployment (if any), peers, spoke, FRR, router labels"
+	@echo "  controller.cleanup   Delete controller Deployment (if any), peers, NCC spokes, FRR, router labels"
 	@echo "  controller.build     Build the controller container image (podman, local)"
 	@echo "  controller.deploy-openshift  Apply deploy/ + BuildConfig binary build + rollout"
 	@echo "  controller.gcp-iam.* Terraform in $(CONTROLLER_GCP_IAM_DIR)/ (GCP SA + WIF bind; after WIF + cluster)"
@@ -78,7 +78,7 @@ bgp.teardown:
 	@bash "$(CURDIR)/scripts/bgp-destroy.sh" $(TF_VARS) $(EXTRA_TF_VARS)
 
 bgp.e2e:
-	@bash "$(CURDIR)/scripts/e2e-cudn-connectivity.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)" --avoid-bgp-router
+	@bash "$(CURDIR)/scripts/e2e-cudn-connectivity.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)" --require-bgp-router
 
 bgp.phase1-baseline:
 	@bash "$(CURDIR)/scripts/bgp-phase1-baseline.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)"

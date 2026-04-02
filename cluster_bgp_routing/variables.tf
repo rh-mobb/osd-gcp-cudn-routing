@@ -67,8 +67,8 @@ variable "cudn_cidr" {
 
 variable "worker_subnet_to_cudn_firewall_mode" {
   type        = string
-  default     = "e2etest"
-  description = "Worker subnet → CUDN firewall: all | e2etest (default) | none. Passed to osd-bgp-routing."
+  default     = "all"
+  description = "Worker subnet → CUDN firewall: all (default) | e2etest | none. Passed to osd-bgp-routing."
 
   validation {
     condition     = contains(["all", "e2etest", "none"], var.worker_subnet_to_cudn_firewall_mode)

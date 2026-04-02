@@ -69,9 +69,9 @@ output "ncc_hub_name" {
   description = "NCC hub name — controller uses this to create the spoke"
 }
 
-output "ncc_spoke_name" {
-  value       = length(module.bgp_routing) > 0 ? module.bgp_routing[0].ncc_spoke_name : null
-  description = "Expected NCC spoke name (created by the controller)"
+output "ncc_spoke_prefix" {
+  value       = length(module.bgp_routing) > 0 ? module.bgp_routing[0].ncc_spoke_prefix : null
+  description = "NCC spoke name prefix — controller creates spokes {prefix}-0, {prefix}-1, …"
 }
 
 output "cloud_router_id" {

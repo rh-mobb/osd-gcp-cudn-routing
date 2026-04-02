@@ -6,13 +6,17 @@ import os
 from dataclasses import dataclass
 
 
+# GCP system limit: router appliance instances per NCC spoke (cannot be increased).
+NCC_MAX_INSTANCES_PER_SPOKE: int = 8
+
+
 @dataclass(frozen=True)
 class ControllerConfig:
     gcp_project: str
     cloud_router_name: str
     cloud_router_region: str
     ncc_hub_name: str
-    ncc_spoke_name: str
+    ncc_spoke_prefix: str
     cluster_name: str
     frr_asn: int = 65003
 
@@ -22,8 +26,6 @@ class ControllerConfig:
     node_label_key: str = "node-role.kubernetes.io/worker"
     node_label_value: str = ""
 
-    # 0 = auto: 2 nodes if single AZ, 3 if multi-AZ (by topology zone).
-    router_node_count: int = 0
     router_label_key: str = "node-role.kubernetes.io/bgp-router"
     infra_label_key: str = "node-role.kubernetes.io/infra"
 
@@ -53,7 +55,7 @@ class ControllerConfig:
             cloud_router_name=_require("CLOUD_ROUTER_NAME"),
             cloud_router_region=_require("CLOUD_ROUTER_REGION"),
             ncc_hub_name=_require("NCC_HUB_NAME"),
-            ncc_spoke_name=_require("NCC_SPOKE_NAME"),
+            ncc_spoke_prefix=_require("NCC_SPOKE_PREFIX"),
             cluster_name=_require("CLUSTER_NAME"),
             frr_asn=int(os.environ.get("FRR_ASN", "65003")),
             ncc_spoke_site_to_site=os.environ.get(
@@ -63,7 +65,6 @@ class ControllerConfig:
                 "NODE_LABEL_KEY", "node-role.kubernetes.io/worker"
             ),
             node_label_value=os.environ.get("NODE_LABEL_VALUE", ""),
-            router_node_count=int(os.environ.get("ROUTER_NODE_COUNT", "0")),
             router_label_key=os.environ.get(
                 "ROUTER_LABEL_KEY", "node-role.kubernetes.io/bgp-router"
             ),

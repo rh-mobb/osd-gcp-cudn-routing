@@ -12,7 +12,8 @@ data:
   CLOUD_ROUTER_NAME: "CHANGEME-cudn-cr"
   CLOUD_ROUTER_REGION: "us-central1"
   NCC_HUB_NAME: "CHANGEME-ncc-hub"
-  NCC_SPOKE_NAME: "CHANGEME-ra-spoke"
+  # Controller creates spokes named {NCC_SPOKE_PREFIX}-0, {NCC_SPOKE_PREFIX}-1, … (≤8 instances per spoke).
+  NCC_SPOKE_PREFIX: "CHANGEME-ra-spoke"
 
   # FRR ASN must match cluster_bgp_routing/variables.tf frr_asn
   FRR_ASN: "65003"
@@ -21,11 +22,10 @@ data:
   NCC_SPOKE_SITE_TO_SITE: "false"
 
   # Worker candidate pool (must not include infra — controller excludes INFRA_EXCLUDE_LABEL_KEY).
+  # Use a custom NODE_LABEL_KEY / NODE_LABEL_VALUE to limit which nodes become BGP routers.
   NODE_LABEL_KEY: "node-role.kubernetes.io/worker"
   NODE_LABEL_VALUE: ""
 
-  # Router node count: 0 = auto (2 if single AZ, 3 if multi-AZ by topology zone).
-  ROUTER_NODE_COUNT: "0"
   ROUTER_LABEL_KEY: "node-role.kubernetes.io/bgp-router"
   INFRA_EXCLUDE_LABEL_KEY: "node-role.kubernetes.io/infra"
 

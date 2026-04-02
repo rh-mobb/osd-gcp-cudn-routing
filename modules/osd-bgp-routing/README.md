@@ -55,7 +55,7 @@ With **`reserve_cloud_router_interface_ips = true`** (default), Terraform create
 
 A **`check`** block validates interface IPs against the worker subnetwork **primary IPv4** CIDR (IPv4 **uint32** range math; works on Terraform **1.0+** without the **`cidrcontains`** function from **1.8+**).
 
-Outputs **`cloud_router_interface_ips`**, **`cloud_router_name`**, **`ncc_hub_name`**, **`ncc_spoke_name`**, **`frr_asn`**, and **`cloud_router_asn`** are consumed by the controller's ConfigMap.
+Outputs **`cloud_router_interface_ips`**, **`cloud_router_name`**, **`ncc_hub_name`**, **`ncc_spoke_prefix`**, **`frr_asn`**, and **`cloud_router_asn`** are consumed by the controller's ConfigMap (as **`NCC_SPOKE_PREFIX`**; the controller creates spokes **`{prefix}-0`**, **`{prefix}-1`**, …).
 
 ## Optional Echo Client VM
 

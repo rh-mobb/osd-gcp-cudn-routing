@@ -53,7 +53,7 @@ run: venv
 	export CLOUD_ROUTER_NAME=`terraform output -raw cloud_router_name 2>/dev/null || true`; \
 	export CLOUD_ROUTER_REGION=`terraform output -raw gcp_region 2>/dev/null || true`; \
 	export NCC_HUB_NAME=`terraform output -raw ncc_hub_name 2>/dev/null || true`; \
-	export NCC_SPOKE_NAME=`terraform output -raw ncc_spoke_name 2>/dev/null || true`; \
+	export NCC_SPOKE_PREFIX=`terraform output -raw ncc_spoke_prefix 2>/dev/null || true`; \
 	export FRR_ASN=`terraform output -raw frr_asn 2>/dev/null || true`; \
 	export GOOGLE_APPLICATION_CREDENTIALS="$${GOOGLE_APPLICATION_CREDENTIALS:-$$HOME/.config/gcloud/application_default_credentials.json}"; \
 	export KUBECONFIG="$${KUBECONFIG:-$$HOME/.kube/config}"; \
@@ -62,12 +62,12 @@ run: venv
 	echo "  CLOUD_ROUTER_NAME:   $$CLOUD_ROUTER_NAME"; \
 	echo "  CLOUD_ROUTER_REGION: $$CLOUD_ROUTER_REGION"; \
 	echo "  NCC_HUB_NAME:        $$NCC_HUB_NAME"; \
-	echo "  NCC_SPOKE_NAME:      $$NCC_SPOKE_NAME"; \
+	echo "  NCC_SPOKE_PREFIX:    $$NCC_SPOKE_PREFIX"; \
 	echo "  FRR_ASN:             $$FRR_ASN"; \
 	echo ""; \
 	test -n "$$CLOUD_ROUTER_NAME" || { echo "ERROR: CLOUD_ROUTER_NAME is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
 	test -n "$$NCC_HUB_NAME"      || { echo "ERROR: NCC_HUB_NAME is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
-	test -n "$$NCC_SPOKE_NAME"    || { echo "ERROR: NCC_SPOKE_NAME is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
+	test -n "$$NCC_SPOKE_PREFIX"  || { echo "ERROR: NCC_SPOKE_PREFIX is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
 	cd "$(CURDIR)"; \
 	PYTHONPATH="$(CURDIR)" $(PYTHON) -m bgp_routing_controller --once
 
@@ -82,7 +82,7 @@ watch: venv
 	export CLOUD_ROUTER_NAME=`terraform output -raw cloud_router_name 2>/dev/null || true`; \
 	export CLOUD_ROUTER_REGION=`terraform output -raw gcp_region 2>/dev/null || true`; \
 	export NCC_HUB_NAME=`terraform output -raw ncc_hub_name 2>/dev/null || true`; \
-	export NCC_SPOKE_NAME=`terraform output -raw ncc_spoke_name 2>/dev/null || true`; \
+	export NCC_SPOKE_PREFIX=`terraform output -raw ncc_spoke_prefix 2>/dev/null || true`; \
 	export FRR_ASN=`terraform output -raw frr_asn 2>/dev/null || true`; \
 	export GOOGLE_APPLICATION_CREDENTIALS="$${GOOGLE_APPLICATION_CREDENTIALS:-$$HOME/.config/gcloud/application_default_credentials.json}"; \
 	export KUBECONFIG="$${KUBECONFIG:-$$HOME/.kube/config}"; \
@@ -91,12 +91,12 @@ watch: venv
 	echo "  CLOUD_ROUTER_NAME:   $$CLOUD_ROUTER_NAME"; \
 	echo "  CLOUD_ROUTER_REGION: $$CLOUD_ROUTER_REGION"; \
 	echo "  NCC_HUB_NAME:        $$NCC_HUB_NAME"; \
-	echo "  NCC_SPOKE_NAME:      $$NCC_SPOKE_NAME"; \
+	echo "  NCC_SPOKE_PREFIX:    $$NCC_SPOKE_PREFIX"; \
 	echo "  FRR_ASN:             $$FRR_ASN"; \
 	echo ""; \
 	test -n "$$CLOUD_ROUTER_NAME" || { echo "ERROR: CLOUD_ROUTER_NAME is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
 	test -n "$$NCC_HUB_NAME"      || { echo "ERROR: NCC_HUB_NAME is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
-	test -n "$$NCC_SPOKE_NAME"    || { echo "ERROR: NCC_SPOKE_NAME is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
+	test -n "$$NCC_SPOKE_PREFIX"  || { echo "ERROR: NCC_SPOKE_PREFIX is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
 	cd "$(CURDIR)"; \
 	PYTHONPATH="$(CURDIR)" $(PYTHON) -m bgp_routing_controller
 
@@ -111,7 +111,7 @@ cleanup: venv
 	export CLOUD_ROUTER_NAME=`terraform output -raw cloud_router_name 2>/dev/null || true`; \
 	export CLOUD_ROUTER_REGION=`terraform output -raw gcp_region 2>/dev/null || true`; \
 	export NCC_HUB_NAME=`terraform output -raw ncc_hub_name 2>/dev/null || true`; \
-	export NCC_SPOKE_NAME=`terraform output -raw ncc_spoke_name 2>/dev/null || true`; \
+	export NCC_SPOKE_PREFIX=`terraform output -raw ncc_spoke_prefix 2>/dev/null || true`; \
 	export FRR_ASN=`terraform output -raw frr_asn 2>/dev/null || true`; \
 	export GOOGLE_APPLICATION_CREDENTIALS="$${GOOGLE_APPLICATION_CREDENTIALS:-$$HOME/.config/gcloud/application_default_credentials.json}"; \
 	export KUBECONFIG="$${KUBECONFIG:-$$HOME/.kube/config}"; \
@@ -120,12 +120,12 @@ cleanup: venv
 	echo "  CLOUD_ROUTER_NAME:   $$CLOUD_ROUTER_NAME"; \
 	echo "  CLOUD_ROUTER_REGION: $$CLOUD_ROUTER_REGION"; \
 	echo "  NCC_HUB_NAME:        $$NCC_HUB_NAME"; \
-	echo "  NCC_SPOKE_NAME:      $$NCC_SPOKE_NAME"; \
+	echo "  NCC_SPOKE_PREFIX:    $$NCC_SPOKE_PREFIX"; \
 	echo "  FRR_ASN:             $$FRR_ASN"; \
 	echo ""; \
 	test -n "$$CLOUD_ROUTER_NAME" || { echo "ERROR: CLOUD_ROUTER_NAME is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
 	test -n "$$NCC_HUB_NAME"      || { echo "ERROR: NCC_HUB_NAME is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
-	test -n "$$NCC_SPOKE_NAME"    || { echo "ERROR: NCC_SPOKE_NAME is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
+	test -n "$$NCC_SPOKE_PREFIX"  || { echo "ERROR: NCC_SPOKE_PREFIX is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
 	cd "$(CURDIR)"; \
 	PYTHONPATH="$(CURDIR)" $(PYTHON) -m bgp_routing_controller --cleanup
 

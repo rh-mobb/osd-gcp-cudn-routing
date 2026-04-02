@@ -4,7 +4,7 @@
 
 This repo provides **Terraform** and scripts to run **OpenShift Dedicated on GCP** with a **Cluster User-Defined Network (CUDN)** so pod and KubeVirt VM IPs are **reachable from the VPC without SNAT** on egress to external destinations. VPC/cluster modules come from [terraform-provider-osd-google](https://github.com/rh-mobb/terraform-provider-osd-google); the **`osdgoogle`** provider is **`~> 0.1.3`** on the [Terraform Registry](https://registry.terraform.io/providers/rh-mobb/osd-google). **`make bgp.run`** applies [**`wif_config/`**](wif_config/README.md) first; expert **`terraform apply`** from **`cluster_bgp_routing/`** alone still expects WIF to exist in OCM.
 
-**Active reference stack — BGP:** **NCC** Router Appliance + **Cloud Router** BGP to a **small set** of worker nodes (controller labels **`node-role.kubernetes.io/bgp-router`**); routes learned into the VPC. **Per selected node** `FRRConfiguration`. **Single** `terraform apply` (static infra) plus the [BGP controller](controller/python/README.md) for spoke, peers, and FRR CRs. Full guide: [**cluster_bgp_routing/README.md**](cluster_bgp_routing/README.md).
+**Active reference stack — BGP:** **NCC** Router Appliance + **Cloud Router** BGP to **all non-infra worker nodes** (controller labels **`node-role.kubernetes.io/bgp-router`**); routes learned into the VPC. **Per-node** `FRRConfiguration`. **Single** `terraform apply` (static infra) plus the [BGP controller](controller/python/README.md) for spoke, peers, and FRR CRs. Full guide: [**cluster_bgp_routing/README.md**](cluster_bgp_routing/README.md).
 
 The **internal load balancer (ILB)** reference module, stack, and comparison doc are **archived** under [**`archive/`**](archive/README.md) (not maintained as a first-class path here).
 
@@ -52,6 +52,11 @@ Use **GCP credentials** and **Terraform inputs** as above (**BGP IAM** for the p
 From the **repository root**, the reference path is **fully scripted** (no hand-edited manifests or copy-paste from terraform output):
 
 ```bash
+export TF_VAR_gcp_project_id="my-gcp-project"
+export TF_VAR_cluster_name="my-cluster-name"
+```
+
+```bash
 make bgp.run
 make bgp.deploy-controller
 make bgp.e2e
@@ -61,7 +66,7 @@ make bgp.e2e
 
 2. **`make bgp.deploy-controller`** — [**`controller_gcp_iam/`**](controller_gcp_iam/README.md) apply, WIF credential **Secret** (**`gcloud`** ADC), **ConfigMap** populated from **`cluster_bgp_routing` `terraform output`**, then namespace / RBAC / ImageStream / BuildConfig / Deployment, **binary image build**, and rollout ([`scripts/bgp-deploy-controller-incluster.sh`](scripts/bgp-deploy-controller-incluster.sh)). Pass **`TF_VARS`** / **`EXTRA_TF_VARS`** through to **`controller_gcp_iam`** the same as **`make bgp.run`**.
 
-3. **`make bgp.e2e`** — CUDN pod ↔ echo VM **`ping`** / **`curl`**. Wait until Cloud Router BGP is **Established** on router nodes if the first run is flaky. **Strict subset test** ([references/fix-bgp-ra.md](references/fix-bgp-ra.md) Phase 3): **`CUDN_E2E_POD_AVOID_BGP_ROUTERS=1 make bgp.e2e`** schedules test pods on workers **without** **`node-role.kubernetes.io/bgp-router`**.
+3. **`make bgp.e2e`** — CUDN pod ↔ echo VM **`ping`** / **`curl`**. Test pods are scheduled on nodes that have **`node-role.kubernetes.io/bgp-router`** (same label the BGP controller applies). Wait until Cloud Router BGP is **Established** if the first run is flaky. Run the controller (**`make bgp.deploy-controller`**) before e2e so workers are labeled and peered.
 
 **Alternative (workstation operator):** after **`make bgp.run`**, use **`make controller.venv`** and **`make controller.run`** (or **`controller.watch`**) with ADC instead of **`make bgp.deploy-controller`** — see [controller/python/README.md](controller/python/README.md).
 
@@ -72,7 +77,7 @@ Troubleshooting: [cluster_bgp_routing § Quick start (pod and echo VM)](cluster_
 **When you are done**, remove controller-managed GCP state, then tear down — [cluster_bgp_routing § Teardown](cluster_bgp_routing/README.md#teardown).
 
 ```bash
-make controller.cleanup   # removes in-cluster Deployment (if any), then peers/spoke/FRR/labels
+make controller.cleanup   # removes in-cluster Deployment (if any), then peers / all numbered NCC spokes / FRR / labels
 make bgp.teardown
 ```
 
@@ -128,7 +133,9 @@ archive/                    # Archived ILB module, cluster_ilb_routing, ILB-vs-B
 
 | Doc | Purpose |
 |-----|---------|
-| [cluster_bgp_routing/README.md](cluster_bgp_routing/README.md) | BGP architecture, IAM, deployment, verification, teardown |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Definitive architecture: data plane, control plane, GCP + OpenShift components, design decisions |
+| [KNOWLEDGE.md](KNOWLEDGE.md) | Verified facts and unverified assumptions about CUDN BGP routing |
+| [cluster_bgp_routing/README.md](cluster_bgp_routing/README.md) | BGP deployment, IAM, variables, verification, teardown |
 | [archive/README.md](archive/README.md) | Archived ILB layout and how to run **`archive/scripts/ilb-*.sh`** |
 | [archive/ILB-vs-BGP.md](archive/ILB-vs-BGP.md) | Historical side-by-side comparison with ILB |
 | [PRODUCTION.md](PRODUCTION.md) | Production readiness (BGP stack + roadmap links); phased checklist in [cluster_bgp_routing/PRODUCTION-ROADMAP.md](cluster_bgp_routing/PRODUCTION-ROADMAP.md) |

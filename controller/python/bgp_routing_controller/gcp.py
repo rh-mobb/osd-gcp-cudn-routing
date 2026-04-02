@@ -180,6 +180,29 @@ class GCPClient:
             logger.info("NCC spoke %s not found (already deleted)", spoke_name)
             return False
 
+    def list_spokes_managed_by_prefix(self, hub_name: str, prefix: str) -> list[str]:
+        """List NCC spoke IDs in this region attached to hub whose names are ``{prefix}-{N}`` (N decimal).
+
+        Used to find controller-managed spokes for stale cleanup and full teardown.
+        """
+        if hub_name.startswith("projects/"):
+            hub_path = hub_name
+        else:
+            hub_path = f"projects/{self._project}/locations/global/hubs/{hub_name}"
+        parent = f"projects/{self._project}/locations/{self._region}"
+        prefix_dash = f"{prefix}-"
+        out: list[str] = []
+        request = network_connectivity_v1.ListSpokesRequest(parent=parent)
+        for spoke in self._hubs.list_spokes(request=request):
+            if spoke.hub != hub_path:
+                continue
+            spoke_id = spoke.name.rsplit("/", maxsplit=1)[-1]
+            if spoke_id.startswith(prefix_dash):
+                suffix = spoke_id[len(prefix_dash) :]
+                if suffix.isdigit():
+                    out.append(spoke_id)
+        return sorted(out)
+
     # -- Cloud Router (step 3) ------------------------------------------------
 
     def get_router_topology(self, router_name: str) -> CloudRouterTopology:
@@ -251,7 +274,6 @@ class GCPClient:
             len(sorted_nodes),
         )
         return True
-
 
     def clear_peers(self, router_name: str) -> bool:
         """Remove all BGP peers from the Cloud Router. Returns True if any were removed.

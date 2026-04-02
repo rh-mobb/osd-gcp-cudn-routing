@@ -8,8 +8,8 @@ output "ncc_hub_name" {
   value       = google_network_connectivity_hub.cudn.name
 }
 
-output "ncc_spoke_name" {
-  description = "Expected NCC spoke name (controller creates this spoke)"
+output "ncc_spoke_prefix" {
+  description = "NCC spoke name prefix — controller creates spokes {prefix}-0, {prefix}-1, … (max 8 instances per spoke)"
   value       = "${var.cluster_name}-ra-spoke"
 }
 

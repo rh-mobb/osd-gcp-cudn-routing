@@ -47,11 +47,11 @@ CLUSTER_NAME=$(terraform output -raw cluster_name)
 CLOUD_ROUTER_NAME=$(terraform output -raw cloud_router_name)
 CLOUD_ROUTER_REGION=$(terraform output -raw gcp_region)
 NCC_HUB_NAME=$(terraform output -raw ncc_hub_name)
-NCC_SPOKE_NAME=$(terraform output -raw ncc_spoke_name)
+NCC_SPOKE_PREFIX=$(terraform output -raw ncc_spoke_prefix)
 FRR_ASN=$(terraform output -raw frr_asn)
 SITE_TO_SITE=$(terraform output -raw ncc_spoke_site_to_site_data_transfer)
 
-test -n "${CLOUD_ROUTER_NAME}" && test -n "${NCC_HUB_NAME}" && test -n "${NCC_SPOKE_NAME}" || {
+test -n "${CLOUD_ROUTER_NAME}" && test -n "${NCC_HUB_NAME}" && test -n "${NCC_SPOKE_PREFIX}" || {
   echo "Error: BGP outputs empty — ensure enable_bgp_routing=true was applied in ${CLUSTER_DIR}." >&2
   exit 1
 }
@@ -72,7 +72,7 @@ CLUSTER_Q=$(yaml_quote "$CLUSTER_NAME")
 ROUTER_Q=$(yaml_quote "$CLOUD_ROUTER_NAME")
 REGION_Q=$(yaml_quote "$CLOUD_ROUTER_REGION")
 HUB_Q=$(yaml_quote "$NCC_HUB_NAME")
-SPOKE_Q=$(yaml_quote "$NCC_SPOKE_NAME")
+SPOKE_PREFIX_Q=$(yaml_quote "$NCC_SPOKE_PREFIX")
 
 cat <<EOF | oc apply -f -
 apiVersion: v1
@@ -88,12 +88,11 @@ data:
   CLOUD_ROUTER_NAME: "${ROUTER_Q}"
   CLOUD_ROUTER_REGION: "${REGION_Q}"
   NCC_HUB_NAME: "${HUB_Q}"
-  NCC_SPOKE_NAME: "${SPOKE_Q}"
+  NCC_SPOKE_PREFIX: "${SPOKE_PREFIX_Q}"
   FRR_ASN: "${FRR_ASN}"
   NCC_SPOKE_SITE_TO_SITE: "${SITE_STR}"
   NODE_LABEL_KEY: "node-role.kubernetes.io/worker"
   NODE_LABEL_VALUE: ""
-  ROUTER_NODE_COUNT: "0"
   ROUTER_LABEL_KEY: "node-role.kubernetes.io/bgp-router"
   INFRA_EXCLUDE_LABEL_KEY: "node-role.kubernetes.io/infra"
   RECONCILE_INTERVAL_SECONDS: "60"

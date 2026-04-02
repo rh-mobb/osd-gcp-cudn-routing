@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import logging
 import re
-from collections import deque
 from dataclasses import dataclass
 
 from kubernetes import client as k8s_client
 
-from .config import ControllerConfig
+from .config import NCC_MAX_INSTANCES_PER_SPOKE, ControllerConfig
 from .frr import build_frr_configuration, frr_config_name
 from .gcp import CloudRouterTopology, GCPClient, RouterNode
 
@@ -25,7 +24,7 @@ FRR_PLURAL = "frrconfigurations"
 
 @dataclass(frozen=True)
 class _Candidate:
-    """Eligible worker (non-infra) with GCE identity and zone for spreading."""
+    """Eligible worker (non-infra) with GCE identity."""
 
     k8s_name: str
     topology_zone: str
@@ -37,7 +36,7 @@ class _Candidate:
 class ReconcileResult:
     nodes_found: int = 0
     can_ip_forward_changed: int = 0
-    spoke_changed: bool = False
+    spokes_changed: int = 0
     peers_changed: bool = False
     frr_created: int = 0
     frr_deleted: int = 0
@@ -47,7 +46,7 @@ class ReconcileResult:
     def any_change(self) -> bool:
         return (
             self.can_ip_forward_changed > 0
-            or self.spoke_changed
+            or self.spokes_changed > 0
             or self.peers_changed
             or self.frr_created > 0
             or self.frr_deleted > 0
@@ -77,9 +76,8 @@ class Reconciler:
             result.router_labels_changed = self._remove_router_label_from_non_selected(set())
             return result
 
-        by_zone = self._group_candidates_by_zone(candidates)
-        target = self._target_router_count(len(by_zone), len(candidates))
-        selected = self._select_router_nodes(by_zone, target)
+        # All matching workers are BGP routers (subset selection removed).
+        selected = sorted(candidates, key=lambda c: (c.router_node.name, c.k8s_name))
 
         result.router_labels_changed = self._sync_router_node_labels(selected, candidates)
 
@@ -87,11 +85,11 @@ class Reconciler:
         node_map = {c.router_node.name: c.k8s_name for c in selected}
         result.nodes_found = len(router_nodes)
 
+        zones = {c.topology_zone for c in selected}
         logger.info(
-            "Reconciling %d router node(s) (target=%d, %d zone(s)): %s",
+            "Reconciling %d router node(s) (%d zone(s)): %s",
             len(router_nodes),
-            target,
-            len(by_zone),
+            len(zones),
             [c.k8s_name for c in selected],
         )
 
@@ -103,16 +101,11 @@ class Reconciler:
             except Exception:
                 logger.exception("Failed to set canIpForward on %s", node.name)
 
-        # Step 2: NCC spoke (create if missing, update if drifted)
+        # Step 2: NCC spokes (<= NCC_MAX_INSTANCES_PER_SPOKE instances each)
         try:
-            result.spoke_changed = self._gcp.reconcile_spoke(
-                self._cfg.ncc_spoke_name,
-                self._cfg.ncc_hub_name,
-                router_nodes,
-                self._cfg.ncc_spoke_site_to_site,
-            )
+            result.spokes_changed += self._reconcile_spokes(router_nodes)
         except Exception:
-            logger.exception("Failed to reconcile NCC spoke")
+            logger.exception("Failed to reconcile NCC spoke(s)")
             raise
 
         # Step 3: Cloud Router peers
@@ -140,6 +133,40 @@ class Reconciler:
             logger.debug("Reconciliation complete: no changes")
 
         return result
+
+    def _reconcile_spokes(self, router_nodes: list[RouterNode]) -> int:
+        """Create/update numbered spokes ``{prefix}-0``, ``{prefix}-1``, … and delete stale ones.
+
+        Returns the number of spoke API operations that made a change (create/update/delete).
+        """
+        prefix = self._cfg.ncc_spoke_prefix
+        max_per = NCC_MAX_INSTANCES_PER_SPOKE
+        sorted_nodes = sorted(router_nodes, key=lambda n: n.name)
+        chunks: list[list[RouterNode]] = [
+            sorted_nodes[i : i + max_per] for i in range(0, len(sorted_nodes), max_per)
+        ]
+        desired_ids = [f"{prefix}-{i}" for i in range(len(chunks))]
+        desired_set = set(desired_ids)
+
+        changes = 0
+        for spoke_id, nodes in zip(desired_ids, chunks):
+            if self._gcp.reconcile_spoke(
+                spoke_id,
+                self._cfg.ncc_hub_name,
+                nodes,
+                self._cfg.ncc_spoke_site_to_site,
+            ):
+                changes += 1
+
+        existing = self._gcp.list_spokes_managed_by_prefix(
+            self._cfg.ncc_hub_name, prefix
+        )
+        for spoke_id in existing:
+            if spoke_id not in desired_set:
+                if self._gcp.delete_spoke(spoke_id):
+                    changes += 1
+
+        return changes
 
     def _delete_controller_deployment_if_present(self) -> None:
         """Remove the controller Deployment if it exists (typical in-cluster install)."""
@@ -188,11 +215,14 @@ class Reconciler:
         except Exception:
             logger.exception("Failed to clear Cloud Router peers")
 
-        # 4. Delete NCC spoke
+        # 4. Delete all NCC spokes managed for this prefix
         try:
-            self._gcp.delete_spoke(self._cfg.ncc_spoke_name)
+            for spoke_id in self._gcp.list_spokes_managed_by_prefix(
+                self._cfg.ncc_hub_name, self._cfg.ncc_spoke_prefix
+            ):
+                self._gcp.delete_spoke(spoke_id)
         except Exception:
-            logger.exception("Failed to delete NCC spoke")
+            logger.exception("Failed to delete NCC spoke(s)")
 
         logger.info("Cleanup complete")
 
@@ -258,46 +288,6 @@ class Reconciler:
 
         return candidates
 
-    def _group_candidates_by_zone(
-        self, candidates: list[_Candidate]
-    ) -> dict[str, list[_Candidate]]:
-        by_zone: dict[str, list[_Candidate]] = {}
-        for c in candidates:
-            by_zone.setdefault(c.topology_zone, []).append(c)
-        return by_zone
-
-    def _target_router_count(self, num_zones: int, num_candidates: int) -> int:
-        if self._cfg.router_node_count > 0:
-            t = self._cfg.router_node_count
-        else:
-            t = 2 if num_zones <= 1 else 3
-        return min(t, num_candidates)
-
-    def _select_router_nodes(
-        self,
-        by_zone: dict[str, list[_Candidate]],
-        target: int,
-    ) -> list[_Candidate]:
-        """Round-robin across zones; labeled nodes first within each zone."""
-        zones = sorted(by_zone.keys())
-        queues: dict[str, deque[_Candidate]] = {}
-        for z in zones:
-            sorted_c = sorted(
-                by_zone[z],
-                key=lambda c: (not c.has_router_label, c.k8s_name),
-            )
-            queues[z] = deque(sorted_c)
-
-        selected: list[_Candidate] = []
-        while len(selected) < target and any(queues[z] for z in zones):
-            for z in zones:
-                if len(selected) >= target:
-                    break
-                if queues[z]:
-                    selected.append(queues[z].popleft())
-
-        return selected
-
     def _sync_router_node_labels(
         self,
         selected: list[_Candidate],
@@ -312,7 +302,6 @@ class Reconciler:
                 if self._patch_node_label(c.k8s_name, add={self._cfg.router_label_key: ""}):
                     changes += 1
 
-        candidate_names = {c.k8s_name for c in candidates}
         for c in candidates:
             if c.k8s_name not in selected_names and c.has_router_label:
                 if self._patch_node_label(

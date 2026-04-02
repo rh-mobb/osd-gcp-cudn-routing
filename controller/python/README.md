@@ -3,7 +3,7 @@
 Watches Kubernetes **Node** objects and automatically reconciles the GCP and OpenShift resources that make BGP-based CUDN routing work. When a worker (or router-pool) node is **added, replaced, or removed**, the controller:
 
 1. Enables **`canIpForward`** on the backing GCE instance
-2. Creates or updates the **NCC Router Appliance spoke** to list exactly the current set of router nodes
+2. Creates or updates **NCC Router Appliance spokes** (`{NCC_SPOKE_PREFIX}-0`, `{NCC_SPOKE_PREFIX}-1`, …) so every candidate worker is linked (≤8 instances per spoke per GCP limit)
 3. Updates **Cloud Router BGP peers** (2 per node — one per interface)
 4. Creates / updates / deletes **`FRRConfiguration`** CRs so each router node peers with both Cloud Router interface IPs
 
@@ -58,7 +58,7 @@ Details and destroy order: [`controller_gcp_iam/README.md`](../../controller_gcp
 
 All configuration is via environment variables (see `deploy/configmap.yaml`):
 
-**Router node selection:** The controller lists **worker candidates** with `NODE_LABEL_KEY` / `NODE_LABEL_VALUE`, **excludes** any node that has `INFRA_EXCLUDE_LABEL_KEY` (default **`node-role.kubernetes.io/infra`**), then picks **up to** `ROUTER_NODE_COUNT` nodes (**`0`** = auto: **2** if all candidates share one `topology.kubernetes.io/zone`, **3** if two or more zones). Selection **round-robins across zones**; within each zone, nodes already labeled with `ROUTER_LABEL_KEY` are preferred. Chosen nodes get **`ROUTER_LABEL_KEY`** (default **`node-role.kubernetes.io/bgp-router`**) so you can see which instances peer with the Cloud Router; the label is removed when a node drops out of the selected set. **`make controller.cleanup`** / **`--cleanup`** deletes the **`Deployment`** in **`CONTROLLER_NAMESPACE`** (default **`bgp-routing-system`**) named **`CONTROLLER_DEPLOYMENT_NAME`** (default **`bgp-routing-controller`**) if it exists, then strips **`ROUTER_LABEL_KEY`** from every node, then removes FRR CRs and GCP resources.
+**Router nodes:** The controller lists **worker candidates** with `NODE_LABEL_KEY` / `NODE_LABEL_VALUE`, **excludes** any node that has `INFRA_EXCLUDE_LABEL_KEY` (default **`node-role.kubernetes.io/infra`**), then treats **every remaining node** as a BGP router. Use a **custom** `NODE_LABEL_KEY` / `NODE_LABEL_VALUE` if only some machine pools should peer (for example, bare-metal workers for CUDN while other workers stay out of BGP). Each candidate gets **`ROUTER_LABEL_KEY`** (default **`node-role.kubernetes.io/bgp-router`**). **`make controller.cleanup`** / **`--cleanup`** deletes the **`Deployment`** in **`CONTROLLER_NAMESPACE`** (default **`bgp-routing-system`**) named **`CONTROLLER_DEPLOYMENT_NAME`** (default **`bgp-routing-controller`**) if it exists, then strips **`ROUTER_LABEL_KEY`** from every node that still has it, then removes FRR CRs and GCP resources (all numbered spokes for the prefix, peers, etc.).
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -67,13 +67,12 @@ All configuration is via environment variables (see `deploy/configmap.yaml`):
 | `CLOUD_ROUTER_NAME` | yes | | Cloud Router name (Terraform output `cloud_router_name`) |
 | `CLOUD_ROUTER_REGION` | yes | | GCP region |
 | `NCC_HUB_NAME` | yes | | NCC hub name (Terraform output `ncc_hub_name`) |
-| `NCC_SPOKE_NAME` | yes | | NCC spoke name (Terraform output `ncc_spoke_name`) |
+| `NCC_SPOKE_PREFIX` | yes | | NCC spoke name prefix — controller creates spokes `{prefix}-0`, `{prefix}-1`, … (Terraform output `ncc_spoke_prefix`) |
 | `FRR_ASN` | | `65003` | FRR ASN (must match Terraform `frr_asn`) |
-| `NCC_SPOKE_SITE_TO_SITE` | | `false` | site_to_site_data_transfer on the NCC spoke |
+| `NCC_SPOKE_SITE_TO_SITE` | | `false` | site_to_site_data_transfer on each NCC spoke |
 | `NODE_LABEL_KEY` | | `node-role.kubernetes.io/worker` | Label selector for **candidate** workers (not infra) |
 | `NODE_LABEL_VALUE` | | _(empty = key-exists)_ | Candidate label value (empty matches any value) |
-| `ROUTER_NODE_COUNT` | | `0` | Max BGP router nodes (`0` = auto: 2 single-AZ, 3 multi-AZ) |
-| `ROUTER_LABEL_KEY` | | `node-role.kubernetes.io/bgp-router` | Label applied to **selected** router nodes |
+| `ROUTER_LABEL_KEY` | | `node-role.kubernetes.io/bgp-router` | Label applied to **all** candidate router nodes |
 | `INFRA_EXCLUDE_LABEL_KEY` | | `node-role.kubernetes.io/infra` | Candidates with this label key are skipped |
 | `RECONCILE_INTERVAL_SECONDS` | | `60` | Periodic drift reconciliation interval |
 | `DEBOUNCE_SECONDS` | | `5` | Minimum time between event-driven reconciliations |
@@ -88,7 +87,7 @@ terraform output -raw gcp_project_id       # → GCP_PROJECT
 terraform output -raw cluster_name         # → CLUSTER_NAME
 terraform output -raw gcp_region           # → CLOUD_ROUTER_REGION
 terraform output -raw ncc_hub_name         # → NCC_HUB_NAME
-terraform output -raw ncc_spoke_name       # → NCC_SPOKE_NAME
+terraform output -raw ncc_spoke_prefix     # → NCC_SPOKE_PREFIX
 ```
 
 ## Local development
@@ -127,7 +126,7 @@ export CLUSTER_NAME=my-cluster
 export CLOUD_ROUTER_NAME=my-cluster-cudn-cr
 export CLOUD_ROUTER_REGION=us-central1
 export NCC_HUB_NAME=my-cluster-ncc-hub
-export NCC_SPOKE_NAME=my-cluster-ra-spoke
+export NCC_SPOKE_PREFIX=my-cluster-ra-spoke
 export GOOGLE_APPLICATION_CREDENTIALS=~/.config/gcloud/application_default_credentials.json
 
 # One-shot
@@ -136,7 +135,7 @@ python -m bgp_routing_controller --once
 # Long-lived operator
 python -m bgp_routing_controller
 
-# Cleanup (Deployment if present, labels, FRR, GCP peers/spoke)
+# Cleanup (Deployment if present, labels, FRR, GCP peers/spokes)
 python -m bgp_routing_controller --cleanup
 ```
 
@@ -202,7 +201,8 @@ Node event (or timer)
   │
   ├─ 2. canIpForward — GET each instance, PATCH if false
   │
-  ├─ 3. NCC spoke — GET spoke (create if missing), compare linked instances, PATCH if drift
+  ├─ 3. NCC spokes — for each `{prefix}-N`, GET spoke (create if missing), compare linked instances, PATCH if drift;
+  │     delete stale numbered spokes; ≤8 instances per spoke (GCP limit)
   │     (must complete before peers can work)
   │
   ├─ 4. Cloud Router peers — GET router, compute desired peer list, PATCH if drift
@@ -220,7 +220,7 @@ Node event (or timer)
 | NCC hub | Terraform | Static — one per cluster |
 | Cloud Router + interfaces | Terraform | Static — HA pair |
 | Firewall rules | Terraform | Static — subnet/CUDN/BGP rules |
-| NCC spoke | **Controller** | Created on first reconciliation |
+| NCC spokes (`{prefix}-0`, …) | **Controller** | Created/updated on reconciliation |
 | Cloud Router BGP peers | **Controller** | 2 per router node |
 | `canIpForward` | **Controller** | Enabled per GCE instance |
 | `FRRConfiguration` CRs | **Controller** | 1 per router node |

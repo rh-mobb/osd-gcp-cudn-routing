@@ -33,7 +33,7 @@ make bgp.e2e
 **Same from this directory:**
 
 ```bash
-../scripts/e2e-cudn-connectivity.sh
+../scripts/e2e-cudn-connectivity.sh --require-bgp-router
 ```
 
 ### Manual `ping` / `curl`
@@ -43,7 +43,7 @@ Run from **`cluster_bgp_routing/`**.
 ```bash
 cd cluster_bgp_routing
 
-./scripts/deploy-cudn-test-pods.sh
+./scripts/deploy-cudn-test-pods.sh --require-bgp-router
 
 # Pod → echo VM (ping then curl). Use the CUDN interface (often ovn-udn1); see `ip a` in the pod if needed.
 ECHO_IP="$(terraform output -raw echo_client_vm_internal_ip)"
@@ -60,7 +60,7 @@ gcloud compute ssh "$(terraform output -raw cluster_name)-echo-client" \
   --project="$(terraform output -raw gcp_project_id)" \
   --zone="$(terraform output -raw echo_client_vm_zone)" \
   --tunnel-through-iap \
-  --command="ping -c 3 ${POD_IP} && curl -sS --connect-timeout 5 --max-time 15 http://${POD_IP}/"
+  --command="ping -c 3 ${POD_IP} && curl -sS --connect-timeout 5 --max-time 15 http://${POD_IP}:8080/"
 ```
 
 If **ping** from the VM fails but **curl** works, ICMP may be blocked—use **`curl`**. If the pod never reaches the VM, **`./scripts/debug-gcp-bgp.sh`** and BGP **`Established`** on all router nodes (see [Troubleshooting](#troubleshooting)).
@@ -70,7 +70,7 @@ If **ping** from the VM fails but **curl** works, ICMP may be blocked—use **`c
 ## Architecture (summary)
 
 1. **Terraform** creates the **static** infrastructure: NCC hub, Cloud Router with 2 interfaces (HA pair), firewalls.
-2. The **controller** picks **non-infra** workers (by default **2** in one AZ, **3** across multiple AZs), labels them **`node-role.kubernetes.io/bgp-router`**, and manages the **dynamic** resources: NCC spoke (router appliance instances), Cloud Router BGP peers (2 per selected node), `canIpForward` on those GCE instances, and `FRRConfiguration` CRs.
+2. The **controller** uses **all non-infra** workers matching the candidate selector (default: `node-role.kubernetes.io/worker`), labels them **`node-role.kubernetes.io/bgp-router`**, and manages the **dynamic** resources: NCC spoke (router appliance instances), Cloud Router BGP peers (2 per worker), `canIpForward` on those GCE instances, and `FRRConfiguration` CRs.
 3. Those **router** nodes run **FRR** and advertise CUDN prefixes; the VPC learns **`cudn_cidr`** via BGP.
 4. **OVN** and **RouteAdvertisements** match the ILB stack: **conditional SNAT** on the CUDN. With **`advertisements: [PodNetwork]`**, OVN-K admission requires **`spec.nodeSelector: {}`** — you cannot narrow RA to **`bgp-router`** nodes only ([references/fix-bgp-ra.md](../references/fix-bgp-ra.md) Phase 2).
 
@@ -173,7 +173,7 @@ See [controller/python/README.md § Build and deploy](../controller/python/READM
 
 ```bash
 terraform output -raw ncc_hub_name         # → NCC_HUB_NAME
-terraform output -raw ncc_spoke_name       # → NCC_SPOKE_NAME
+terraform output -raw ncc_spoke_prefix     # → NCC_SPOKE_PREFIX
 terraform output -raw cloud_router_name    # → CLOUD_ROUTER_NAME
 terraform output -raw gcp_project_id       # → GCP_PROJECT
 terraform output -raw cluster_name         # → CLUSTER_NAME
@@ -191,7 +191,7 @@ oc get ra
 oc get frrconfiguration -n openshift-frr-k8s
 ```
 
-One **`FRRConfiguration`** per router node (created by the controller); each targets a single node and peers with **both** Cloud Router interface IPs (2 neighbors).
+One **`FRRConfiguration`** per BGP candidate worker (created by the controller); each targets a single node and peers with **both** Cloud Router interface IPs (2 neighbors).
 
 **OVN NAT** (same idea as ILB stack):
 
@@ -224,7 +224,7 @@ Same **`ping`** / **`curl`** sequence as [Quick start (pod and echo VM)](#quick-
 | Script | Purpose |
 |--------|---------|
 | `configure-routing.sh` | **One-time setup:** FRR enable, CUDN namespace + `ClusterUserDefinedNetwork`, `RouteAdvertisements`. Requires **`oc`** in PATH. |
-| `deploy-cudn-test-pods.sh` | Test pods (exec of [`scripts/deploy-cudn-test-pods.sh`](../scripts/deploy-cudn-test-pods.sh)). **`--avoid-bgp-router`** / **`CUDN_TEST_PODS_AVOID_BGP_ROUTERS`** — [references/fix-bgp-ra.md](../references/fix-bgp-ra.md) Phase 3. |
+| `deploy-cudn-test-pods.sh` | Test pods (exec of [`scripts/deploy-cudn-test-pods.sh`](../scripts/deploy-cudn-test-pods.sh)). For BGP checks, use **`--require-bgp-router`** (or **`CUDN_TEST_PODS_REQUIRE_BGP_ROUTERS=1`**) so pods land on **`node-role.kubernetes.io/bgp-router`** nodes; **`make bgp.e2e`** passes this automatically. Routine runs **do not delete** pods; use **`--recreate-test-pods`** / **`CUDN_TEST_PODS_RECREATE=1`** when pods must be recreated (e.g. first apply of **nodeAffinity**). |
 | `cudn-pod-ip.sh` | CUDN IP from annotations (independent copy). |
 | `debug-gcp-bgp.sh` | **`gcloud`** diagnostics: Cloud Router **BGP status**, NCC hub/spoke, **routes** for **`cudn_cidr`**, module **firewall** rules. Run from **`cluster_bgp_routing/`** (`terraform output` must include **`cloud_router_id`**). Optional **`--dir`**. |
 
