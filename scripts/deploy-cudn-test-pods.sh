@@ -7,23 +7,18 @@ NAMESPACE="${CUDN_NAMESPACE:-cudn1}"
 WAIT_TIMEOUT="${CUDN_TEST_PODS_WAIT_TIMEOUT:-120s}"
 DO_WAIT=1
 DO_IP_ADDR=1
-# Optional: schedule only on nodes that have the BGP router label (BGP / make bgp.e2e).
-REQUIRE_BGP_ROUTER=0
 # Delete test pods before apply (only when needed: pod spec is immutable; routine e2e avoids churn).
 RECREATE_TEST_PODS=0
-BGP_ROUTER_LABEL_KEY="${CUDN_TEST_PODS_BGP_ROUTER_LABEL_KEY:-node-role.kubernetes.io/bgp-router}"
 
 usage() {
   echo "Deploy netshoot-cudn and icanhazip-cudn for CUDN connectivity tests."
   echo "Usage: $(basename "$0") [options]"
   echo "  -n, --namespace NS   Namespace (default: cudn1 or CUDN_NAMESPACE)"
   echo "      --timeout DUR    oc wait timeout (default: 120s or CUDN_TEST_PODS_WAIT_TIMEOUT)"
-  echo "      --require-bgp-router  required nodeAffinity: node must have label ${BGP_ROUTER_LABEL_KEY} (BGP e2e)"
-  echo "      --recreate-test-pods  Delete netshoot-cudn / icanhazip-cudn first (use once if affinity must replace old pods)"
+  echo "      --recreate-test-pods  Delete netshoot-cudn / icanhazip-cudn first (use once if pod spec must change)"
   echo "      --no-wait        Apply only; do not oc wait or ip addr"
   echo "  -h, --help           This help"
-  echo "Env: CUDN_TEST_PODS_REQUIRE_BGP_ROUTERS=1|true same as --require-bgp-router"
-  echo "     CUDN_TEST_PODS_RECREATE=1|true same as --recreate-test-pods"
+  echo "Env: CUDN_TEST_PODS_RECREATE=1|true same as --recreate-test-pods"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -35,10 +30,6 @@ while [[ $# -gt 0 ]]; do
     --timeout)
       WAIT_TIMEOUT="$2"
       shift 2
-      ;;
-    --require-bgp-router)
-      REQUIRE_BGP_ROUTER=1
-      shift
       ;;
     --recreate-test-pods)
       RECREATE_TEST_PODS=1
@@ -61,9 +52,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-case "${CUDN_TEST_PODS_REQUIRE_BGP_ROUTERS:-}" in
-  1 | true | True | yes | YES) REQUIRE_BGP_ROUTER=1 ;;
-esac
 case "${CUDN_TEST_PODS_RECREATE:-}" in
   1 | true | True | yes | YES) RECREATE_TEST_PODS=1 ;;
 esac
@@ -72,19 +60,6 @@ command -v oc >/dev/null 2>&1 || {
   echo "Error: oc not found on PATH." >&2
   exit 1
 }
-
-AFFINITY_YAML=""
-if [[ "$REQUIRE_BGP_ROUTER" -eq 1 ]]; then
-  echo "Scheduling test pods on nodes with label ${BGP_ROUTER_LABEL_KEY} (BGP router nodes)."
-  AFFINITY_YAML="  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-        - matchExpressions:
-          - key: ${BGP_ROUTER_LABEL_KEY}
-            operator: Exists
-"
-fi
 
 if [[ "$RECREATE_TEST_PODS" -eq 1 ]]; then
   echo "Recreating test pods (--recreate-test-pods / CUDN_TEST_PODS_RECREATE)."
@@ -98,7 +73,7 @@ metadata:
   name: netshoot-cudn
   namespace: ${NAMESPACE}
 spec:
-${AFFINITY_YAML}  containers:
+  containers:
   - name: netshoot
     image: nicolaka/netshoot
     command: ["sleep", "infinity"]
@@ -112,7 +87,7 @@ metadata:
   name: icanhazip-cudn
   namespace: ${NAMESPACE}
 spec:
-${AFFINITY_YAML}  containers:
+  containers:
   - name: icanhazip
     image: docker.io/thejordanprice/icanhazip-clone:latest
     # Upstream CMD runs app.py with port=80 baked in; use Flask CLI instead (no image fork).

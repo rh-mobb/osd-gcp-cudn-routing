@@ -1,6 +1,6 @@
 # `controller_gcp_iam` — BGP controller GCP IAM
 
-Terraform root that provisions **GCP IAM** for the [BGP routing controller](../controller/python/README.md): custom role, service account, and **Workload Identity Federation** impersonation binding for the OpenShift **`ServiceAccount`**.
+Terraform root that provisions **GCP IAM** for the [BGP routing controller](../controller/go/README.md): custom role, service account, and **Workload Identity Federation** impersonation binding for the OpenShift **`ServiceAccount`**.
 
 ## Prerequisites
 
@@ -68,7 +68,7 @@ After STS succeeds, **impersonation** needs **`roles/iam.workloadIdentityUser`**
 
 ## Destroy order
 
-Destroy this stack **before** or **after** the cluster; if you remove the WIF config, apply/destroy here while OCM still exposes the WIF data source if you need to change IAM. Typical teardown: **`make controller.cleanup`** → **`make bgp.teardown`**; run **`make controller.gcp-iam.destroy`** around the same window (before **`wif.destroy`**) if you want the SA removed.
+Destroy this stack **before** or **after** the cluster; if you remove the WIF config, apply/destroy here while OCM still exposes the WIF data source if you need to change IAM. Typical teardown after **`make bgp.deploy-controller`**: **`make destroy`** ( **`bgp.destroy-controller`** + **`bgp.teardown`**) or **`make bgp.destroy-controller`** → **`make bgp.teardown`**. For IAM-only removal without **`controller.cleanup`**, use **`make controller.gcp-iam.destroy`**.
 
 ## Module
 

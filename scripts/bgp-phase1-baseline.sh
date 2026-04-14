@@ -5,7 +5,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLUSTER_DIR="${REPO_ROOT}/cluster_bgp_routing"
-ROUTER_LABEL="node-role.kubernetes.io/bgp-router"
+ROUTER_LABEL="cudn.redhat.com/bgp-router"
 RUN_E2E=0
 SKIP_GCP=0
 

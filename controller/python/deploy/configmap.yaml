@@ -21,12 +21,15 @@ data:
   # NCC spoke site_to_site_data_transfer (must match Terraform ncc_spoke_site_to_site_data_transfer)
   NCC_SPOKE_SITE_TO_SITE: "false"
 
+  # GCE nested virtualization on router VMs (default on; set "false" to skip). Not supported on OSD-GCP.
+  ENABLE_GCE_NESTED_VIRTUALIZATION: "true"
+
   # Worker candidate pool (must not include infra — controller excludes INFRA_EXCLUDE_LABEL_KEY).
   # Use a custom NODE_LABEL_KEY / NODE_LABEL_VALUE to limit which nodes become BGP routers.
   NODE_LABEL_KEY: "node-role.kubernetes.io/worker"
   NODE_LABEL_VALUE: ""
 
-  ROUTER_LABEL_KEY: "node-role.kubernetes.io/bgp-router"
+  ROUTER_LABEL_KEY: "cudn.redhat.com/bgp-router"
   INFRA_EXCLUDE_LABEL_KEY: "node-role.kubernetes.io/infra"
 
   # Reconciliation tuning

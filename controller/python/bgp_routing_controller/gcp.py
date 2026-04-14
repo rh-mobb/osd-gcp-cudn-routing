@@ -1,4 +1,4 @@
-"""GCP API operations for canIpForward, NCC spoke, and Cloud Router peers."""
+"""GCP API operations for canIpForward, nested virtualization, NCC spoke, and Cloud Router peers."""
 
 from __future__ import annotations
 
@@ -66,6 +66,35 @@ class GCPClient:
         )
         op.result()
         logger.info("Enabled canIpForward on %s", node.name)
+        return True
+
+    def ensure_nested_virtualization(self, node: RouterNode) -> bool:
+        """Set enableNestedVirtualization on the instance. Returns True if a change was made."""
+        zone = _short_zone(node.zone)
+        instance = self._instances.get(
+            project=self._project, zone=zone, instance=node.name
+        )
+        amf = instance.advanced_machine_features
+        if amf is not None and amf.enable_nested_virtualization:
+            return False
+
+        if amf is None:
+            amf = compute_v1.AdvancedMachineFeatures()
+            instance.advanced_machine_features = amf
+        amf.enable_nested_virtualization = True
+
+        op = self._instances.update(
+            request=compute_v1.UpdateInstanceRequest(
+                project=self._project,
+                zone=zone,
+                instance=node.name,
+                instance_resource=instance,
+                # enableNestedVirtualization requires RESTART; REFRESH returns 400 from GCP.
+                most_disruptive_allowed_action="RESTART",
+            )
+        )
+        op.result()
+        logger.info("Enabled nested virtualization on %s", node.name)
         return True
 
     # -- NCC spoke (step 2) ---------------------------------------------------

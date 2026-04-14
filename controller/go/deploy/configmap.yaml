@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bgp-routing-controller
+  namespace: bgp-routing-system
+  labels:
+    app.kubernetes.io/name: bgp-routing-controller
+data:
+  GCP_PROJECT: "CHANGEME"
+  CLUSTER_NAME: "CHANGEME"
+  CLOUD_ROUTER_NAME: "CHANGEME-cudn-cr"
+  CLOUD_ROUTER_REGION: "us-central1"
+  NCC_HUB_NAME: "CHANGEME-ncc-hub"
+  NCC_SPOKE_PREFIX: "CHANGEME-ra-spoke"
+  FRR_ASN: "65003"
+  NCC_SPOKE_SITE_TO_SITE: "false"
+  # Default on; set "false" to skip. Not supported on OSD-GCP.
+  ENABLE_GCE_NESTED_VIRTUALIZATION: "true"
+  NODE_LABEL_KEY: "node-role.kubernetes.io/worker"
+  NODE_LABEL_VALUE: ""
+  ROUTER_LABEL_KEY: "cudn.redhat.com/bgp-router"
+  INFRA_EXCLUDE_LABEL_KEY: "node-role.kubernetes.io/infra"
+  RECONCILE_INTERVAL_SECONDS: "60"
+  DEBOUNCE_SECONDS: "5"

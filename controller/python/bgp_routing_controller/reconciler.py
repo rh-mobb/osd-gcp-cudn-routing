@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 _PROVIDER_ID_RE = re.compile(r"^gce://(?P<project>[^/]+)/(?P<zone>[^/]+)/(?P<name>.+)$")
 _TOPOLOGY_ZONE_LABEL = "topology.kubernetes.io/zone"
 
+# Set on nodes after successful GCP instance updates (OCM-friendly; not node-role labels).
+_ANNOTATION_GCP_CAN_IP_FORWARD = "cudn.redhat.com/gcp-can-ip-forward"
+_ANNOTATION_GCP_NESTED_VIRTUALIZATION = "cudn.redhat.com/gcp-nested-virtualization"
+_CONTROLLER_GCP_ANNOTATION_KEYS = frozenset(
+    {_ANNOTATION_GCP_CAN_IP_FORWARD, _ANNOTATION_GCP_NESTED_VIRTUALIZATION}
+)
+
 FRR_GROUP = "frrk8s.metallb.io"
 FRR_VERSION = "v1beta1"
 FRR_PLURAL = "frrconfigurations"
@@ -36,6 +43,7 @@ class _Candidate:
 class ReconcileResult:
     nodes_found: int = 0
     can_ip_forward_changed: int = 0
+    nested_virtualization_changed: int = 0
     spokes_changed: int = 0
     peers_changed: bool = False
     frr_created: int = 0
@@ -46,6 +54,7 @@ class ReconcileResult:
     def any_change(self) -> bool:
         return (
             self.can_ip_forward_changed > 0
+            or self.nested_virtualization_changed > 0
             or self.spokes_changed > 0
             or self.peers_changed
             or self.frr_created > 0
@@ -96,10 +105,39 @@ class Reconciler:
         # Step 1: canIpForward
         for node in router_nodes:
             try:
-                if self._gcp.ensure_can_ip_forward(node):
-                    result.can_ip_forward_changed += 1
+                changed = self._gcp.ensure_can_ip_forward(node)
             except Exception:
                 logger.exception("Failed to set canIpForward on %s", node.name)
+                continue
+            if changed:
+                result.can_ip_forward_changed += 1
+            k8s_name = node_map[node.name]
+            self._patch_node_metadata(
+                k8s_name, add_ann={_ANNOTATION_GCP_CAN_IP_FORWARD: "true"}
+            )
+
+        if self._cfg.enable_gce_nested_virtualization:
+            for node in router_nodes:
+                try:
+                    changed = self._gcp.ensure_nested_virtualization(node)
+                except Exception:
+                    logger.exception(
+                        "Failed to set nested virtualization on %s", node.name
+                    )
+                    continue
+                if changed:
+                    result.nested_virtualization_changed += 1
+                k8s_name = node_map[node.name]
+                self._patch_node_metadata(
+                    k8s_name,
+                    add_ann={_ANNOTATION_GCP_NESTED_VIRTUALIZATION: "true"},
+                )
+        else:
+            for node in router_nodes:
+                k8s_name = node_map[node.name]
+                self._patch_node_metadata(
+                    k8s_name, remove_ann_keys={_ANNOTATION_GCP_NESTED_VIRTUALIZATION}
+                )
 
         # Step 2: NCC spokes (<= NCC_MAX_INSTANCES_PER_SPOKE instances each)
         try:
@@ -299,13 +337,17 @@ class Reconciler:
 
         for c in selected:
             if not c.has_router_label:
-                if self._patch_node_label(c.k8s_name, add={self._cfg.router_label_key: ""}):
+                if self._patch_node_metadata(
+                    c.k8s_name, add_labels={self._cfg.router_label_key: ""}
+                ):
                     changes += 1
 
         for c in candidates:
             if c.k8s_name not in selected_names and c.has_router_label:
-                if self._patch_node_label(
-                    c.k8s_name, remove={self._cfg.router_label_key}
+                if self._patch_node_metadata(
+                    c.k8s_name,
+                    remove_label_keys={self._cfg.router_label_key},
+                    remove_ann_keys=_CONTROLLER_GCP_ANNOTATION_KEYS,
                 ):
                     changes += 1
 
@@ -328,7 +370,11 @@ class Reconciler:
             labels = node.metadata.labels or {}
             if self._cfg.router_label_key not in labels:
                 continue
-            if self._patch_node_label(name, remove={self._cfg.router_label_key}):
+            if self._patch_node_metadata(
+                name,
+                remove_label_keys={self._cfg.router_label_key},
+                remove_ann_keys=_CONTROLLER_GCP_ANNOTATION_KEYS,
+            ):
                 changes += 1
                 logger.info("Removed %s from node %s", self._cfg.router_label_key, name)
         return changes
@@ -343,19 +389,24 @@ class Reconciler:
             return 0
 
         for node in nodes.items:
-            if self._patch_node_label(
-                node.metadata.name, remove={self._cfg.router_label_key}
+            if self._patch_node_metadata(
+                node.metadata.name,
+                remove_label_keys={self._cfg.router_label_key},
+                remove_ann_keys=_CONTROLLER_GCP_ANNOTATION_KEYS,
             ):
                 count += 1
         return count
 
-    def _patch_node_label(
+    def _patch_node_metadata(
         self,
         node_name: str,
-        add: dict[str, str] | None = None,
-        remove: set[str] | None = None,
+        *,
+        add_labels: dict[str, str] | None = None,
+        remove_label_keys: set[str] | frozenset[str] | None = None,
+        add_ann: dict[str, str] | None = None,
+        remove_ann_keys: set[str] | frozenset[str] | None = None,
     ) -> bool:
-        """Merge-update node labels. Returns True if API call succeeded."""
+        """Merge-update node labels and annotations. Returns True if API call succeeded."""
         try:
             node = self._core.read_node(node_name)
         except k8s_client.ApiException as exc:
@@ -363,13 +414,20 @@ class Reconciler:
             return False
 
         labels = dict(node.metadata.labels or {})
-        if remove:
-            for k in remove:
+        if remove_label_keys:
+            for k in remove_label_keys:
                 labels.pop(k, None)
-        if add:
-            labels.update(add)
+        if add_labels:
+            labels.update(add_labels)
 
-        body = {"metadata": {"labels": labels}}
+        ann = dict(node.metadata.annotations or {})
+        if remove_ann_keys:
+            for k in remove_ann_keys:
+                ann.pop(k, None)
+        if add_ann:
+            ann.update(add_ann)
+
+        body = {"metadata": {"labels": labels, "annotations": ann}}
         try:
             self._core.patch_node(node_name, body)
         except k8s_client.ApiException as exc:

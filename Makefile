@@ -19,7 +19,10 @@
 CLUSTER_BGP_DIR := cluster_bgp_routing
 ARCHIVE_ILB_DIR := archive/cluster_ilb_routing
 WIF_DIR := wif_config
-CONTROLLER_DIR := controller/python
+# Optional flags for wif.undelete-soft-deleted-roles (default: auto from wif_config Terraform + gcloud list --show-deleted).
+# Examples: WIF_UNDELETE_ARGS='--dry-run'  WIF_UNDELETE_ARGS='--from-log ./apply.log'  WIF_UNDELETE_TERRAFORM_DIR=../other/wif
+WIF_UNDELETE_ARGS ?=
+CONTROLLER_DIR := controller/go
 CONTROLLER_GCP_IAM_DIR := controller_gcp_iam
 MODULES := $(sort $(notdir $(wildcard modules/*/)))
 
@@ -33,18 +36,23 @@ help:
 	@echo ""
 	@echo "  (ILB reference stack lives under archive/ — see archive/README.md and archive/scripts/ilb-*.sh.)"
 	@echo ""
-	@echo "  bgp.run       full deploy: WIF, cluster single apply (BGP+NCC+echo VM), oc login, cluster_bgp_routing configure-routing.sh"
-	@echo "  bgp.teardown  terraform destroy $(CLUSTER_BGP_DIR)/ then $(WIF_DIR)/ (-auto-approve); run controller.cleanup first if you used the controller"
-	@echo "  bgp.e2e       CUDN pod ↔ echo VM checks ($(CLUSTER_BGP_DIR)/; requires oc + gcloud logged in)"
-	@echo "                schedules test pods on nodes with node-role.kubernetes.io/bgp-router"
-	@echo "  bgp.phase1-baseline  fix-bgp-ra Phase 1: router nodes, RA nodeSelector, FRR CRs, debug-gcp-bgp (oc + terraform + gcloud)"
-	@echo "  bgp.deploy-controller  After bgp.run: IAM + WIF Secret + ConfigMap from TF + in-cluster controller"
+	@echo "  create        quick start: bgp.run + bgp.deploy-controller + bgp.e2e (sequential)"
+	@echo "  destroy       bgp.destroy-controller + bgp.teardown (full stack teardown)"
 	@echo ""
-	@echo "  controller.venv      Create Python venv for the BGP routing controller"
-	@echo "  controller.run       One-shot reconciliation (reads terraform output)"
-	@echo "  controller.watch     Run the long-lived operator (kopf event loop)"
+	@echo "  bgp.run       full deploy: WIF, cluster single apply (BGP+NCC+echo VM), oc login, cluster_bgp_routing configure-routing.sh"
+	@echo "  bgp.teardown  terraform destroy $(CLUSTER_BGP_DIR)/ then $(WIF_DIR)/ (-auto-approve); run bgp.destroy-controller first if you used the in-cluster controller"
+	@echo "  bgp.e2e       CUDN pod ↔ echo VM checks ($(CLUSTER_BGP_DIR)/; requires oc + gcloud logged in)"
+	@echo "  bgp.phase1-baseline  fix-bgp-ra Phase 1: router nodes, RA nodeSelector, FRR CRs, debug-gcp-bgp (oc + terraform + gcloud)"
+	@echo "  bgp.deploy-controller  After bgp.run: IAM + WIF Secret + ConfigMap from TF + build + rollout restart + rollout status"
+	@echo "  bgp.destroy-controller  controller.cleanup then controller_gcp_iam terraform destroy (before bgp.teardown)"
+	@echo ""
+	@echo "  controller.venv      (Python only) Create venv under controller/python/"
+	@echo "  controller.run       One-shot reconciliation (reads terraform output; Go controller)"
+	@echo "  controller.watch     Run the long-lived controller (Go / controller-runtime)"
+	@echo "  controller.test      go test ./... under controller/go"
 	@echo "  controller.cleanup   Delete controller Deployment (if any), peers, NCC spokes, FRR, router labels"
-	@echo "  controller.build     Build the controller container image (podman, local)"
+	@echo "  controller.build     Compile the Go controller binary (go build under $(CONTROLLER_DIR)/)"
+	@echo "  controller.docker-build  Build the controller container image (podman; $(CONTROLLER_DIR)/Dockerfile)"
 	@echo "  controller.deploy-openshift  Apply deploy/ + BuildConfig binary build + rollout"
 	@echo "  controller.gcp-iam.* Terraform in $(CONTROLLER_GCP_IAM_DIR)/ (GCP SA + WIF bind; after WIF + cluster)"
 	@echo "  controller.gcp-credentials  Generate credential-config.json (+ optional Secret via env)"
@@ -53,11 +61,12 @@ help:
 	@echo "  wif.plan      terraform plan in $(WIF_DIR)/"
 	@echo "  wif.apply     terraform apply in $(WIF_DIR)/ (run before cluster apply)"
 	@echo "  wif.destroy   terraform destroy in $(WIF_DIR)/ (after cluster destroy)"
+	@echo "  wif.undelete-soft-deleted-roles  Undelete soft-deleted WIF custom roles (reads wif_config/ Terraform + gcloud; optional WIF_UNDELETE_ARGS; see scripts/README.md)"
 	@echo ""
 	@echo "  init          terraform init -upgrade in $(CLUSTER_BGP_DIR)/ (same root as bgp.init)"
 	@echo "  plan          terraform plan in $(CLUSTER_BGP_DIR)/"
 	@echo "  apply         terraform apply in $(CLUSTER_BGP_DIR)/"
-	@echo "  destroy       terraform destroy in $(CLUSTER_BGP_DIR)/"
+	@echo "  cluster.destroy  terraform destroy in $(CLUSTER_BGP_DIR)/ only (expert; not WIF / controller IAM)"
 	@echo "  bgp.init      terraform init -upgrade in $(CLUSTER_BGP_DIR)/"
 	@echo "  bgp.plan      terraform plan in $(CLUSTER_BGP_DIR)/"
 	@echo "  bgp.apply     terraform apply in $(CLUSTER_BGP_DIR)/"
@@ -70,7 +79,16 @@ help:
 	@echo "See README.md for prerequisites and workflow; scripts/README.md for bgp.run env vars."
 	@echo "Naming: stack.action with dots; multi-word segments use hyphens (e.g. controller.gcp-iam.init)."
 
-.PHONY: bgp.run bgp.teardown bgp.e2e bgp.phase1-baseline bgp.deploy-controller
+.PHONY: create destroy bgp.run bgp.teardown bgp.e2e bgp.phase1-baseline bgp.deploy-controller bgp.destroy-controller
+create:
+	@$(MAKE) bgp.run
+	@$(MAKE) bgp.deploy-controller
+	@$(MAKE) bgp.e2e
+
+destroy:
+	@$(MAKE) bgp.destroy-controller
+	@$(MAKE) bgp.teardown
+
 bgp.run:
 	@bash "$(CURDIR)/scripts/bgp-apply.sh" $(TF_VARS) $(EXTRA_TF_VARS)
 
@@ -78,7 +96,7 @@ bgp.teardown:
 	@bash "$(CURDIR)/scripts/bgp-destroy.sh" $(TF_VARS) $(EXTRA_TF_VARS)
 
 bgp.e2e:
-	@bash "$(CURDIR)/scripts/e2e-cudn-connectivity.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)" --require-bgp-router
+	@bash "$(CURDIR)/scripts/e2e-cudn-connectivity.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)"
 
 bgp.phase1-baseline:
 	@bash "$(CURDIR)/scripts/bgp-phase1-baseline.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)"
@@ -86,7 +104,11 @@ bgp.phase1-baseline:
 bgp.deploy-controller:
 	@bash "$(CURDIR)/scripts/bgp-deploy-controller-incluster.sh" $(TF_VARS) $(EXTRA_TF_VARS)
 
-.PHONY: wif.init wif.plan wif.apply wif.destroy
+bgp.destroy-controller:
+	@$(MAKE) controller.cleanup
+	@$(MAKE) controller.gcp-iam.destroy
+
+.PHONY: wif.init wif.plan wif.apply wif.destroy wif.undelete-soft-deleted-roles
 wif.init:
 	@cd $(WIF_DIR) && terraform init -upgrade
 
@@ -98,6 +120,9 @@ wif.apply: wif.init
 
 wif.destroy: wif.init
 	@cd $(WIF_DIR) && terraform destroy $(TF_VARS) $(EXTRA_TF_VARS)
+
+wif.undelete-soft-deleted-roles:
+	@bash "$(CURDIR)/scripts/gcp-undelete-wif-custom-roles.sh" $(WIF_UNDELETE_ARGS)
 
 .PHONY: init
 init:
@@ -111,8 +136,8 @@ plan: init
 apply: init
 	@cd $(CLUSTER_BGP_DIR) && terraform apply $(TF_VARS) $(EXTRA_TF_VARS)
 
-.PHONY: destroy
-destroy: init
+.PHONY: cluster.destroy
+cluster.destroy: init
 	@cd $(CLUSTER_BGP_DIR) && terraform destroy $(TF_VARS) $(EXTRA_TF_VARS)
 
 .PHONY: bgp.init bgp.plan bgp.apply
@@ -125,9 +150,9 @@ bgp.plan: bgp.init
 bgp.apply: bgp.init
 	@cd $(CLUSTER_BGP_DIR) && terraform apply $(TF_VARS) $(EXTRA_TF_VARS)
 
-.PHONY: controller.venv controller.run controller.watch controller.cleanup controller.build controller.deploy-openshift
+.PHONY: controller.venv controller.run controller.watch controller.test controller.cleanup controller.build controller.docker-build controller.deploy-openshift
 controller.venv:
-	@$(MAKE) -C $(CONTROLLER_DIR) venv
+	@$(MAKE) -C controller/python venv
 
 controller.run:
 	@$(MAKE) -C $(CONTROLLER_DIR) run
@@ -135,11 +160,17 @@ controller.run:
 controller.watch:
 	@$(MAKE) -C $(CONTROLLER_DIR) watch
 
+controller.test:
+	@$(MAKE) -C $(CONTROLLER_DIR) test
+
 controller.cleanup:
 	@$(MAKE) -C $(CONTROLLER_DIR) cleanup
 
 controller.build:
 	@$(MAKE) -C $(CONTROLLER_DIR) build
+
+controller.docker-build:
+	@$(MAKE) -C $(CONTROLLER_DIR) docker-build
 
 controller.deploy-openshift:
 	@$(MAKE) -C $(CONTROLLER_DIR) deploy-openshift

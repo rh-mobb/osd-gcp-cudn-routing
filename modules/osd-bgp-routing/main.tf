@@ -1,5 +1,5 @@
 # BGP-based CUDN routing: NCC hub + Cloud Router + interfaces + firewalls.
-# The controller (controller/python/) owns the dynamic resources:
+# The controller (controller/go/) owns the dynamic resources:
 #   NCC spoke, Cloud Router BGP peers, canIpForward, FRRConfiguration CRs.
 #
 # GCP Router Appliance architecture (per official docs):

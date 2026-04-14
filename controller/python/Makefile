@@ -139,7 +139,8 @@ deploy-openshift:
 	@set -e; \
 	WIF_AUD="$$(cd "$(IAM_TF_DIR)" && terraform output -raw wif_kubernetes_token_audience)"; \
 	oc kustomize deploy/ | sed "s|__BGP_CONTROLLER_WIF_AUDIENCE__|$$WIF_AUD|g" | oc apply -f -
-	oc start-build bgp-routing-controller -n "$(NS)" --from-dir=. --follow
+	oc start-build bgp-routing-controller -n "$(NS)" --from-dir="$(CURDIR)" --follow
+	oc rollout restart "deployment/bgp-routing-controller" -n "$(NS)"
 	oc rollout status "deployment/bgp-routing-controller" -n "$(NS)" --timeout=180s
 
 .PHONY: lint

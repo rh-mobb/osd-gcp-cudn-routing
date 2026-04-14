@@ -83,9 +83,7 @@ DO_DEPLOY=1
 PING_IFACE_OVERRIDE="${CUDN_PING_IFACE:-}"
 ALLOW_ICMP_FAIL=0
 DEPLOY_EXTRA_ARGS=()
-E2E_REQUIRE_BGP_ROUTER=0
 E2E_RECREATE_TEST_PODS=0
-BGP_ROUTER_LABEL_KEY="${CUDN_E2E_BGP_ROUTER_LABEL_KEY:-node-role.kubernetes.io/bgp-router}"
 
 usage() {
   echo "CUDN e2e: pod <-> echo VM (ping, curl, verify reflected IPs). ILB or BGP stack."
@@ -96,14 +94,12 @@ usage() {
   echo "      --timeout DUR       Passed to deploy-cudn-test-pods oc wait (default: 120s)"
   echo "      --ping-iface IFACE  Force ping -I IFACE (default: auto-detect from netshoot ip -br a)"
   echo "      --allow-icmp-fail   If ping fails, warn and do not count it toward the final exit code"
-  echo "      --require-bgp-router  Schedule test pods on nodes with ${BGP_ROUTER_LABEL_KEY} (default for make bgp.e2e)"
-  echo "      --recreate-test-pods  Passed to deploy: delete test pods before apply (one-time affinity / fresh IPs)"
+  echo "      --recreate-test-pods  Passed to deploy: delete test pods before apply (immutable spec / fresh IPs)"
   echo "      --skip-deploy       Do not run deploy-cudn-test-pods (pods must already be Ready)"
   echo "  -h, --help              This help"
   echo
   echo "Example (from ILB or BGP stack directory):"
   echo "  ../scripts/$(basename "$0")"
-  echo "  ../scripts/$(basename "$0") --require-bgp-router   # BGP stack: pods on router-labeled nodes"
   echo "  NO_COLOR=1 disables ANSI colors; FORCE_COLOR=1 forces colors when stderr is not a TTY."
   echo
   echo "Env (optional, positive integers): CUDN_E2E_HTTP_CURL_ATTEMPTS (default 12),"
@@ -137,10 +133,6 @@ while [[ $# -gt 0 ]]; do
       ALLOW_ICMP_FAIL=1
       shift
       ;;
-    --require-bgp-router)
-      E2E_REQUIRE_BGP_ROUTER=1
-      shift
-      ;;
     --recreate-test-pods)
       E2E_RECREATE_TEST_PODS=1
       shift
@@ -161,16 +153,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-case "${CUDN_E2E_REQUIRE_BGP_ROUTERS:-}" in
-  1 | true | True | yes | YES) E2E_REQUIRE_BGP_ROUTER=1 ;;
-esac
 case "${CUDN_E2E_RECREATE_TEST_PODS:-}" in
   1 | true | True | yes | YES) E2E_RECREATE_TEST_PODS=1 ;;
 esac
 
-if [[ "$E2E_REQUIRE_BGP_ROUTER" -eq 1 ]]; then
-  DEPLOY_EXTRA_ARGS+=(--require-bgp-router)
-fi
 if [[ "$E2E_RECREATE_TEST_PODS" -eq 1 ]]; then
   DEPLOY_EXTRA_ARGS+=(--recreate-test-pods)
 fi
@@ -234,17 +220,6 @@ else
 fi
 pass "CUDN test pods Ready (netshoot-cudn, icanhazip-cudn)"
 
-if [[ "$E2E_REQUIRE_BGP_ROUTER" -eq 1 ]]; then
-  for pod in netshoot-cudn icanhazip-cudn; do
-    node="$(oc get pod -n "$NAMESPACE" "$pod" -o jsonpath='{.spec.nodeName}')"
-    if ! oc get node "$node" -o json | jq -e --arg k "$BGP_ROUTER_LABEL_KEY" '.metadata.labels | has($k)' >/dev/null 2>&1; then
-      fail "require-bgp-router: pod ${pod} on node ${node} missing label ${BGP_ROUTER_LABEL_KEY}"
-      exit 1
-    fi
-  done
-  pass "Pods are on BGP router nodes (${BGP_ROUTER_LABEL_KEY})"
-fi
-
 cd "$CLUSTER_DIR"
 
 ECHO_IP="$(terraform output -raw echo_client_vm_internal_ip | tr -d '\r\n')"
@@ -280,9 +255,6 @@ PING_IFACE="${PING_IFACE%%@*}"
 title "CUDN end-to-end run"
 kv "namespace" "$NAMESPACE"
 kv "cluster-dir" "$CLUSTER_DIR"
-if [[ "$E2E_REQUIRE_BGP_ROUTER" -eq 1 ]]; then
-  kv "require BGP router nodes" "yes (${BGP_ROUTER_LABEL_KEY})"
-fi
 kv "netshoot CUDN IP" "$NETSHOOT_CUDN_IP"
 kv "ping interface" "$PING_IFACE"
 kv "icanhazip CUDN IP" "$ICAN_CUDN_IP"

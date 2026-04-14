@@ -59,6 +59,10 @@ def startup(settings: kopf.OperatorSettings, **kwargs) -> None:
     logger.info("  Worker pool label: %s", _cfg.node_label_selector)
     logger.info("  Router label key:  %s", _cfg.router_label_key)
     logger.info("  FRR ASN:           %d", _cfg.frr_asn)
+    logger.info(
+        "  GCE nested virt:   %s (default on; set ENABLE_GCE_NESTED_VIRTUALIZATION=false to skip; not supported on OSD-GCP)",
+        "on" if _cfg.enable_gce_nested_virtualization else "off",
+    )
 
     _reconciler.reconcile()
 

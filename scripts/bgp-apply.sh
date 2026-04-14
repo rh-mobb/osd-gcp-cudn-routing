@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end BGP+CUDN deployment: WIF, cluster apply, oc login, configure-routing.sh.
 # Dynamic resources (NCC spoke, BGP peers, canIpForward, FRRConfiguration) are managed
-# by the controller (controller/python/) — Terraform only creates static infra.
+# by the controller (controller/go/) — Terraform only creates static infra.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,7 +12,7 @@ source "${ROOT}/scripts/orchestration-lib.sh"
 
 OC_LOGIN_EXTRA_ARGS="${OC_LOGIN_EXTRA_ARGS:-}"
 
-for cmd in terraform oc; do
+for cmd in terraform oc curl; do
   command -v "$cmd" >/dev/null 2>&1 || {
     echo "Error: required command '$cmd' not found on PATH." >&2
     exit 1
@@ -37,6 +37,10 @@ echo "=== Step 3/4: oc login ==="
 API_URL=$(terraform output -raw api_url)
 ADMIN_USER=$(terraform output -raw admin_username)
 ADMIN_PASS=$(terraform output -raw admin_password)
+# Avoid non-interactive hangs: oc prompts on unknown CA until OCM serves a public chain.
+if [[ "${OC_LOGIN_EXTRA_ARGS:-}" != *"--insecure-skip-tls-verify"* ]]; then
+  orchestration_wait_api_tls "$API_URL"
+fi
 # shellcheck disable=SC2086
 if ! oc login "$API_URL" -u "$ADMIN_USER" -p "$ADMIN_PASS" $OC_LOGIN_EXTRA_ARGS 2>&1; then
   echo "  Login failed — retrying with --insecure-skip-tls-verify..."
@@ -54,4 +58,4 @@ echo "=== bgp-apply complete ==="
 echo "Next (fully automated in-cluster controller):"
 echo "  make bgp.deploy-controller"
 echo "  make bgp.e2e"
-echo "Workstation operator instead: make controller.venv && make controller.run (see controller/python/README.md)"
+echo "Workstation controller instead: make controller.run (see controller/go/README.md); Python venv: make controller.venv"

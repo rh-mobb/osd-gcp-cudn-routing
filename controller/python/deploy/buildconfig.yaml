@@ -1,5 +1,5 @@
 # Binary + Docker: run from controller/python/ after apply:
-#   oc start-build bgp-routing-controller -n bgp-routing-system --from-dir=. --follow
+#   oc start-build bgp-routing-controller -n bgp-routing-system --from-dir="$PWD" --follow
 apiVersion: build.openshift.io/v1
 kind: BuildConfig
 metadata:

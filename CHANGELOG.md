@@ -7,19 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Controller `ClusterRole` (Go + Python `deploy/rbac.yaml`)** — grant **`update`** on **`nodes`** (not only **`patch`**): node label changes use **`client.Update`**, so without **`update`** the API rejects writes and the router label never appears (errors were previously ignored in **`SyncRouterLabels`**).
+
+- **`controller/go/internal/reconciler/nodes.go`** — **`SyncRouterLabels`**, **`removeRouterLabelFromNonSelected`**, and **`RemoveAllRouterLabels`** return node **`Update`** errors instead of ignoring them.
+
+- **FRRConfiguration neighbors (Go + Python)** — stop setting deprecated **`disableMP`** (MetalLB/frr-k8s warns at reconcile time; default behavior matches the old **`true`** case for IPv4/IPv6 family matching).
+
+- **Go controller logs** — each reconcile logs **start** / **completed** (counts and **`anyChange`**) from **`BGPReconciler`**; **`reconciler.Reconcile`** logs candidate selection, NCC / Cloud Router / FRR phases, and notable mutations. **`--once`** passes a logger **`IntoContext`** so the same phase logs appear locally.
+
+- **`scripts/bgp-deploy-controller-incluster.sh`** / **`controller/go/Makefile`** / **`controller/python/Makefile`** — use **`--from-dir="${PWD}"`** (or **`$(CURDIR)`** in Make) instead of **`--from-dir=.`** so bash does not treat **`.`** as the **`source`** builtin and fail with **`.: --: invalid option`**.
+
+- **BGP controllers (Go + Python)** — **`instances.update`** for **`advancedMachineFeatures.enableNestedVirtualization`** uses **`mostDisruptiveAllowedAction=RESTART`** (GCP returns **400** if **`REFRESH`** is used: required action **RESTART**). **`canIpForward`** still uses **`REFRESH`**.
+
+- **`modules/osd-bgp-controller-iam`** — default **`custom_role_permissions`** adds **`compute.networks.get`** and **`compute.networks.updatePolicy`** (**`routers.get`** / **`instances.update`** can require them on some VPC topologies).
+
+- **`controller/go/cmd/main.go`** — logs one **Application Default Credentials** line (**`jsonType`**, **`credentialSourceFile`**, impersonation flag) to confirm **WIF / `external_account`** in-cluster without printing secrets.
+
+- **`controller/go/internal/reconciler/reconciler.go`** — **`EnsureCanIPForward`** / **`EnsureNestedVirtualization`** errors are returned instead of ignored.
+
+- **Go controller `/readyz`** — readiness no longer calls **`GetRouterTopology`** on every probe (that could leave **`Deployment`** never **Ready** and **`oc rollout status`** over the progress deadline when WIF or GCP access is wrong). **`/readyz`** now uses **`healthz.Ping`** like **`/healthz`**; GCP is still used each reconcile.
+
+- **Root `Makefile` help** — **`controller.build`** was documented as a container image build but only runs **`go build`** for the local binary; **`make controller.docker-build`** (delegates to **`controller/go` `docker-build`**) documents the image build path.
+
+- **`scripts/bgp-apply.sh`** (**`make bgp.run`** / **`make create`**) — waits for the cluster API TLS certificate to verify against system CAs (probes **`/version`** with **`curl`**) before **`oc login`**, avoiding non-interactive hangs on the “unknown authority” prompt while OCM rolls out a public CA. Configurable via **`OC_WAIT_API_TLS_MAX_SEC`** and **`OC_WAIT_API_TLS_INTERVAL_SEC`**; skipped when **`OC_LOGIN_EXTRA_ARGS`** contains **`--insecure-skip-tls-verify`**. Documented in **`scripts/README.md`**.
+
+- **`scripts/gcp-undelete-wif-custom-roles.sh`** — auto mode no longer relied on **`deleted: true`** in **`gcloud iam roles list --format=json`** (that field is not present in list output). Soft-deleted roles are detected by set-differencing role **`name`** lists with vs without **`--show-deleted`**. When that diff is empty but **`apply`** can still fail, the script prints **`gcloud`** list line counts and guidance for the **role_id tombstone** case (**`describe`** / **`undelete`** **`NOT_FOUND`**). **`scripts/README.md`** documents Terraform provider limits and manual **`gcloud`** checks.
+
 ### Changed
 
-- **`scripts/deploy-cudn-test-pods.sh`** — with **`--require-bgp-router`**, **no longer deletes** test pods by default (avoids new CUDN IPs and BGP/GCP reconvergence on every e2e). Opt-in **`--recreate-test-pods`** or **`CUDN_TEST_PODS_RECREATE=1`** to delete **`netshoot-cudn`** / **`icanhazip-cudn`** before apply when the pod spec must be replaced (immutable fields). **`scripts/e2e-cudn-connectivity.sh`** adds **`--recreate-test-pods`** / **`CUDN_E2E_RECREATE_TEST_PODS`**.
+- **Router marker label (default `ROUTER_LABEL_KEY`)** — default is now **`cudn.redhat.com/bgp-router`** instead of **`node-role.kubernetes.io/bgp-router`** (OCM-friendly). Go + Python config defaults, **`deploy/configmap.yaml`**, and **`scripts/bgp-deploy-controller-incluster.sh`** updated.
+
+- **Node annotations after GCP instance reconcile** — controllers set **`cudn.redhat.com/gcp-can-ip-forward=true`** after successful **`canIpForward`** ensure, and **`cudn.redhat.com/gcp-nested-virtualization=true`** when nested virt is enabled; nested annotation is cleared when nested virt is off. **`controller.cleanup`** / label removal strips both annotations with the router label.
+
+- **CUDN e2e / test pods** — **`scripts/deploy-cudn-test-pods.sh`** and **`scripts/e2e-cudn-connectivity.sh`** no longer support **`--require-bgp-router`** (or related env vars); **`make bgp.e2e`** does not pass a router **nodeAffinity** because all workers are BGP peers in the reference design.
+
+- **`scripts/bgp-deploy-controller-incluster.sh`**, **`controller/go/Makefile` `deploy-openshift`**, **`controller/python/Makefile` `deploy-openshift`** — after **`oc start-build … --follow`**, run **`oc rollout restart deployment/bgp-routing-controller`** so a new push to **`…:latest`** actually runs new pods; **`oc rollout status`** unchanged. **`controller/go/deploy/deployment.yaml`** and **`controller/python/deploy/deployment.yaml`** set **`imagePullPolicy: Always`** on the controller container.
+
+- **`controller/go/Dockerfile`** — build stage uses **`registry.access.redhat.com/ubi9/ubi:latest`** with **`yum install go-toolset`** (current **Go 1.25** from UBI repos; avoids **`ubi9/go-toolset:9.5`** shipping older **Go 1.23**); runtime **`registry.access.redhat.com/ubi9/ubi-minimal:9.5`** with **`ca-certificates`**. Removed **`GOTOOLCHAIN=auto`**.
+
+- **BGP controllers:** **`ENABLE_GCE_NESTED_VIRTUALIZATION`** is **on by default** when unset; set **`false`** to disable GCE nested virtualization on router VMs.
+
+- **Makefile:** cluster-only **`cluster_bgp_routing/`** Terraform destroy is **`make cluster.destroy`** (renamed from **`make destroy`**). **`make destroy`** now runs **`bgp.destroy-controller`** then **`bgp.teardown`** (full quick-start teardown).
+
+- **`scripts/deploy-cudn-test-pods.sh`** — **no longer deletes** test pods by default (avoids new CUDN IPs and BGP/GCP reconvergence on every e2e). Opt-in **`--recreate-test-pods`** or **`CUDN_TEST_PODS_RECREATE=1`** to delete **`netshoot-cudn`** / **`icanhazip-cudn`** before apply when the pod spec must be replaced (immutable fields). **`scripts/e2e-cudn-connectivity.sh`** adds **`--recreate-test-pods`** / **`CUDN_E2E_RECREATE_TEST_PODS`**.
 
 - **`scripts/e2e-cudn-connectivity.sh`** — HTTP curl probes (**pod→VM** and **VM→pod**) use **more patient defaults** (12 attempts, 10s connect / 25s max per try, 3s sleep) and optional env **`CUDN_E2E_HTTP_CURL_ATTEMPTS`**, **`CUDN_E2E_HTTP_CONNECT_TIMEOUT`**, **`CUDN_E2E_HTTP_MAX_TIME`**, **`CUDN_E2E_HTTP_RETRY_SLEEP`** for flaky BGP/convergence. Connectivity steps **1–3** still always run; **Summary** + **exit 1** unchanged (except **`--allow-icmp-fail`**).
-
-- **BGP e2e pod placement:** **`make bgp.e2e`** passes **`--require-bgp-router`** so test pods use **nodeAffinity** **`Exists`** on **`node-role.kubernetes.io/bgp-router`**, with a post-schedule check. Removed **`--avoid-bgp-router`**, **`CUDN_TEST_PODS_AVOID_BGP_ROUTERS`**, and **`CUDN_E2E_POD_AVOID_BGP_ROUTERS`**. ILB / archive e2e runs without the flag (no router label required).
 
 - **BGP controller — all candidate workers are BGP routers** — removed **`ROUTER_NODE_COUNT`** and subset selection; every node matching **`NODE_LABEL_KEY`** / **`NODE_LABEL_VALUE`** (excluding infra) gets **`canIpForward`**, NCC router-appliance membership, Cloud Router peers, and an **`FRRConfiguration`**. Use a custom label selector to limit which pools participate.
 
 - **NCC spokes — multi-spoke + prefix config** — **`NCC_SPOKE_NAME`** / Terraform output **`ncc_spoke_name`** replaced by **`NCC_SPOKE_PREFIX`** / **`ncc_spoke_prefix`**. The controller creates spokes **`{prefix}-0`**, **`{prefix}-1`**, … with up to **8** instances per spoke (GCP limit) and deletes stale numbered spokes when workers are removed.
 
 ### Added
+
+- **GitHub Actions — controller images on `main`** — [`.github/workflows/publish-controller-images.yml`](.github/workflows/publish-controller-images.yml) builds and pushes **`controller/go`** and **`controller/python`** to **GHCR** as **`ghcr.io/<owner>/<repo>/bgp-controller-go`** and **`…/bgp-controller-python`** (tags **`latest`**, branch, **`sha-<git>`**). Runs on pushes to **`main`** and **`workflow_dispatch`**.
+
+- **[references/RFE-osd-google-wif-gcp-iam-lifecycle.md](references/RFE-osd-google-wif-gcp-iam-lifecycle.md)** — RFE for **terraform-provider-osd-google** / **osd-wif-gcp** (and related modules): WIF GCP **`google_project_iam_custom_role`** lifecycle, optional retention across teardown, split-stack pattern, and tombstone avoidance for repeated demos.
+
+- **`scripts/gcp-undelete-wif-custom-roles.sh`** and **`make wif.undelete-soft-deleted-roles`** — default mode reads **`wif_config/`** Terraform (**`gcp_project_id`**, WIF **`role_prefix`**) and compares **`gcloud iam roles list`** with vs without **`--show-deleted`** to find soft-deleted roles (no manual role list). Optional **`--from-log`**, **`--terraform-dir` / `WIF_UNDELETE_TERRAFORM_DIR`**, **`--no-prefix-filter`**, **`--dry-run`**, **`--continue-on-error`**, or explicit **`PROJECT_ID ROLE_ID …`**. **`WIF_UNDELETE_ARGS`** on **`make`** is optional. Documented in **`scripts/README.md`**.
+
+- **BGP controllers (Python and Go)** — **`ENABLE_GCE_NESTED_VIRTUALIZATION`** / **`enable_gce_nested_virtualization`**: reconciler sets **`advancedMachineFeatures.enableNestedVirtualization`** on each router worker’s GCE instance via **`compute.instances.update`** (same mechanism as **`canIpForward`**). **Defaults to on**; set **`false`** to skip. **Not supported on OSD-GCP**; for lab or unsupported topologies only.
+
+- **`make bgp.destroy-controller`** — runs **`controller.cleanup`** then **`controller.gcp-iam.destroy`** (sequential; use before **`make bgp.teardown`** when you used the in-cluster controller). Quick start and teardown docs recommend this target instead of **`controller.cleanup`** alone for the scripted path.
+
+- **`make create`** / **`make destroy`** — **`create`** runs **`bgp.run`**, **`bgp.deploy-controller`**, and **`bgp.e2e`** in order; **`destroy`** runs **`bgp.destroy-controller`** then **`bgp.teardown`**. Documented as the [README quick start](README.md#quick-start--bgp).
+
+- **`controller/go/`** — BGP routing **controller** in **Go** using **controller-runtime** (Node watch, ConfigMap/env config, leader election, metrics `:8080`, health/readiness `:8081`, `--once` / `--cleanup`). OpenShift **Kustomize** manifests under **`controller/go/deploy/`**; **`scripts/bgp-deploy-controller-incluster.sh`** and root **`CONTROLLER_DIR`** now target this tree. Unit tests under **`internal/*`**. The **Python** controller remains under **`controller/python/`** for reference.
 
 - **`KNOWLEDGE.md`** — documents verified facts and unverified assumptions about CUDN BGP routing across GCP and AWS, including the all-nodes-as-peers requirement discovered through cross-team collaboration and the AWS reference implementation (`references/rosa-bgp`).
 

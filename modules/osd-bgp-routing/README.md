@@ -2,7 +2,7 @@
 
 Creates the **static** infrastructure for BGP-based CUDN routing: **Network Connectivity Center** (NCC) hub, a **Cloud Router** with **2 interfaces** (HA pair), and supporting firewall rules so **CUDN prefixes** can be learned into the VPC route table.
 
-The **dynamic** resources — NCC **spoke**, **BGP peers**, **`canIpForward`**, and **`FRRConfiguration`** CRs — are managed by the [BGP routing controller](../../controller/python/README.md), not Terraform. This separation ensures no ownership conflict on re-apply.
+The **dynamic** resources — NCC **spoke**, **BGP peers**, **`canIpForward`**, and **`FRRConfiguration`** CRs — are managed by the [BGP routing controller](../../controller/go/README.md), not Terraform. This separation ensures no ownership conflict on re-apply.
 
 Set **`ref`** in the module source to a **Git tag** or **commit SHA** for reproducible installs.
 

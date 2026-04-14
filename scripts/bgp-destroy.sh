@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tear down cluster_bgp_routing then wif_config (same order as README).
-# If you used the BGP controller, run `make controller.cleanup` from the repo
-# root first — otherwise Cloud Router peers / NCC spoke can block instance delete.
+# If you used the in-cluster controller, run `make bgp.destroy-controller` from
+# the repo root first — otherwise Cloud Router peers / NCC spoke can block instance delete.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

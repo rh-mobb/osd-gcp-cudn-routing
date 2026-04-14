@@ -137,7 +137,8 @@ Applied by `configure-routing.sh` after cluster creation.
 | Resource | Purpose |
 |----------|---------|
 | **`FRRConfiguration` CRs** | One per worker node; targets single node via `kubernetes.io/hostname`; 2 Cloud Router neighbors with `disable-connected-check` in `spec.raw` |
-| **Node label** `node-role.kubernetes.io/bgp-router` | Applied to all candidate workers; used for observability and scheduling decisions |
+| **Node label** `cudn.redhat.com/bgp-router` (default **`ROUTER_LABEL_KEY`**) | Applied to all candidate workers for **`oc get -l`** / affinity if you add it elsewhere |
+| **Node annotations** `cudn.redhat.com/gcp-can-ip-forward`, `cudn.redhat.com/gcp-nested-virtualization` | Set after successful GCE **`canIpForward`** / nested virt reconcile; removed with the router label on cleanup or when nested virt is disabled |
 
 ### OVN-K Generated (automatic)
 
@@ -242,11 +243,12 @@ It watches Node events and runs periodic drift correction (default 60s).
 │     - Sorted by GCE instance name (deterministic)        │
 │                                                          │
 │  3. Sync labels                                          │
-│     - Apply node-role.kubernetes.io/bgp-router           │
+│     - Apply cudn.redhat.com/bgp-router (default key)     │
 │     - Remove from nodes no longer in the candidate pool  │
 │                                                          │
 │  4. Enable canIpForward                                  │
 │     - GCE API: set canIpForward=true on each instance    │
+│     - Annotate node: cudn.redhat.com/gcp-can-ip-forward    │
 │                                                          │
 │  5. Reconcile NCC spokes                                 │
 │     - Shard workers into chunks of ≤8 per spoke (GCP)    │
@@ -271,7 +273,7 @@ It watches Node events and runs periodic drift correction (default 60s).
 `make controller.cleanup` performs teardown in reverse order:
 
 1. Delete the controller Deployment (prevents races).
-2. Remove `bgp-router` labels from all nodes.
+2. Remove router labels (**`ROUTER_LABEL_KEY`**, default **`cudn.redhat.com/bgp-router`**) and controller GCP annotations from all nodes that had the label.
 3. Delete all controller-managed `FRRConfiguration` CRs.
 4. Clear Cloud Router BGP peers (full resource PUT, not patch).
 5. Delete all NCC spokes matching `{NCC_SPOKE_PREFIX}-<number>`.
@@ -359,7 +361,7 @@ The controller creates one `FRRConfiguration` per worker:
 
 - **Name**: `bgp-{instance-name}` (sanitized, max 50 chars).
 - **`nodeSelector`**: `kubernetes.io/hostname: {node-name}` (single-node targeting).
-- **Neighbors**: both Cloud Router interface IPs, with `disableMP: true` and `toReceive.allowed.mode: all`.
+- **Neighbors**: both Cloud Router interface IPs, with `toReceive.allowed.mode: all` ( **`disableMP`** omitted — deprecated in MetalLB; defaults match former **`true`** ).
 - **`spec.raw`**: `neighbor {cr-ip} disable-connected-check` for each neighbor (required because GCP workers use `/32` on `br-ex`).
 
 ### RouteAdvertisements
@@ -515,8 +517,8 @@ For clusters scaling beyond 8 workers, the controller distributes instances acro
    └── Deployment rollout
 
 5. Controller reconciles (continuous)
-   ├── Labels all workers as bgp-router
-   ├── Enables canIpForward on all workers
+   ├── Labels all workers (default **`cudn.redhat.com/bgp-router`**)
+   ├── Enables canIpForward on all workers; annotates nodes (**`cudn.redhat.com/gcp-can-ip-forward`**, nested virt when enabled)
    ├── Creates/updates NCC spokes ({prefix}-0, …)
    ├── Creates/updates Cloud Router BGP peers
    └── Creates/updates FRRConfiguration CRs
@@ -536,12 +538,13 @@ For clusters scaling beyond 8 workers, the controller distributes instances acro
 | `modules/osd-bgp-routing/` | Reusable Terraform module: NCC hub, Cloud Router, interfaces, firewalls |
 | `cluster_bgp_routing/` | Reference root: composes VPC + cluster + BGP module |
 | `cluster_bgp_routing/scripts/configure-routing.sh` | One-time OpenShift setup (FRR, CUDN, RouteAdvertisements) |
-| `controller/python/bgp_routing_controller/` | BGP routing controller (Python/kopf) |
-| `controller/python/bgp_routing_controller/reconciler.py` | Core reconciliation: node discovery, label sync, multi-spoke NCC, Cloud Router peers, FRR CRs |
-| `controller/python/bgp_routing_controller/gcp.py` | GCP API: `canIpForward`, NCC spokes (list/create/update/delete), Cloud Router peers |
-| `controller/python/bgp_routing_controller/frr.py` | Build `FRRConfiguration` CR bodies |
-| `controller/python/bgp_routing_controller/config.py` | Controller configuration from environment variables |
-| `controller/python/deploy/` | Kubernetes manifests (kustomize) |
+| `controller/go/` | BGP routing controller (Go / controller-runtime) |
+| `controller/go/internal/reconciler/` | Core reconciliation: node discovery, label sync, multi-spoke NCC, Cloud Router peers, FRR CRs |
+| `controller/go/internal/gcp/` | GCP API: `canIpForward`, NCC spokes, Cloud Router peers |
+| `controller/go/internal/frr/` | Build `FRRConfiguration` CR bodies (unstructured) |
+| `controller/go/internal/config/` | Controller configuration from environment variables |
+| `controller/go/deploy/` | Kubernetes manifests (kustomize) |
+| `controller/python/` | Legacy Python/kopf controller (reference) |
 | `controller_gcp_iam/` | Controller GCP SA + WIF IAM |
 | `modules/osd-bgp-controller-iam/` | Reusable module: custom role, SA, WIF binding |
 | `scripts/` | Orchestration: `bgp-apply.sh`, `bgp-deploy-controller-incluster.sh`, `e2e-cudn-connectivity.sh` |

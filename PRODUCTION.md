@@ -7,7 +7,7 @@ This file is the **single** production-readiness guide for the **BGP** reference
 ## Current state (BGP path)
 
 - **Terraform** provisions **static** GCP pieces: NCC **hub**, **Cloud Router** (two interfaces), reservations, and **firewalls**. It does **not** own the NCC **spoke**, **BGP peers**, **`canIpForward`**, or **`FRRConfiguration`** CRs.
-- The [**Python / kopf BGP routing controller**](controller/python/README.md) reconciles those **dynamic** resources from **Node** `providerID` and cluster config (WIF-backed GCP API + OpenShift client). Deploy end-to-end with **`make bgp.deploy-controller`** after **`make bgp.run`** (see root [README](README.md)).
+- The [**Go / controller-runtime BGP routing controller**](controller/go/README.md) reconciles those **dynamic** resources from **Node** `providerID` and cluster config (WIF-backed GCP API + OpenShift client). Deploy end-to-end with **`make bgp.deploy-controller`** after **`make bgp.run`** (see root [README](README.md)). A [**Python / kopf** prototype](controller/python/README.md) remains for reference.
 - **[`cluster_bgp_routing/scripts/configure-routing.sh`](cluster_bgp_routing/scripts/configure-routing.sh)** is a **one-time** OpenShift step (FRR / route advertisements, **ClusterUserDefinedNetwork**, **RouteAdvertisements**). Run it **before** the controller so FRR can reconcile controller-created **`FRRConfiguration`** objects. With **`PodNetwork`** advertised, **RouteAdvertisements** must use **`nodeSelector: {}`** per OVN-K validation ([references/fix-bgp-ra.md](references/fix-bgp-ra.md) Phase 2).
 - **Roadmap [Phase 1](cluster_bgp_routing/PRODUCTION-ROADMAP.md)** (safety, firewall modes, router IP reservation, backend docs) is largely **complete**. **Phases 2–4** cover runbooks, BGP tuning, IAM/secrets hardening, multi-CUDN, observability, multi-zone, and a **production-grade** controller (Go / **controller-runtime**).
 
@@ -23,7 +23,7 @@ Use **remote state** (for example **GCS** with versioning and locking) for anyth
 
 ## BGP routing controller (implemented prototype)
 
-Ongoing reconciliation for **node churn** is implemented by the [**Python / kopf** controller](controller/python/README.md) ([roadmap § 4F](cluster_bgp_routing/PRODUCTION-ROADMAP.md)): **WIF**-authenticated GCP + OpenShift clients, **`make bgp.deploy-controller`** ([`scripts/bgp-deploy-controller-incluster.sh`](scripts/bgp-deploy-controller-incluster.sh)) applying [**`controller_gcp_iam/`**](controller_gcp_iam/README.md) and credentials. **Production** still needs the roadmap items (Go / **controller-runtime**, CRDs, leader election, live validation).
+Ongoing reconciliation for **node churn** is implemented by the [**Go** controller](controller/go/README.md) ([roadmap § 4F](cluster_bgp_routing/PRODUCTION-ROADMAP.md)): **WIF**-authenticated GCP + OpenShift clients, leader election, metrics and health probes, **`make bgp.deploy-controller`** ([`scripts/bgp-deploy-controller-incluster.sh`](scripts/bgp-deploy-controller-incluster.sh)) applying [**`controller_gcp_iam/`**](controller_gcp_iam/README.md) and credentials. **Production** still needs live validation at scale and optional CRD-based configuration (roadmap).
 
 | Area | Today (prototype) | Still manual / future |
 |------|-------------------|------------------------|
@@ -45,7 +45,7 @@ Ongoing reconciliation for **node churn** is implemented by the [**Python / kopf
 
 ### Architecture and isolation
 
-**Dedicated router machine pool (optional but often desirable).** The controller selects a **bounded** set of worker nodes (defaults and labels: [controller/python/README.md](controller/python/README.md)). Production may move to a **dedicated** labeled pool so ordinary workers are not router appliances.
+**Dedicated router machine pool (optional but often desirable).** The controller targets workers matching **`NODE_LABEL_KEY`** / **`NODE_LABEL_VALUE`** (defaults and labels: [controller/go/README.md](controller/go/README.md)). Production may move to a **dedicated** labeled pool so ordinary workers are not router appliances.
 
 **Multi-zone and capacity.** Plan explicit **per-zone** resources, quotas, and failure domains. NCC and Router Appliance attachment design should match your zone layout and worker distribution (see also [cluster_bgp_routing/README.md](cluster_bgp_routing/README.md)).
 
@@ -71,13 +71,13 @@ Ongoing reconciliation for **node churn** is implemented by the [**Python / kopf
 
 **IAM:** Terraform principals — [Requirements § IAM](modules/osd-bgp-routing/README.md#requirements). Controller service account — [`controller_gcp_iam/`](controller_gcp_iam/README.md) and [`modules/osd-bgp-controller-iam/`](modules/osd-bgp-controller-iam/README.md). Historical role comparison: [archive/ILB-vs-BGP.md](archive/ILB-vs-BGP.md).
 
-1. **NCC spoke, Cloud Router peers, canIpForward, and FRRConfiguration** are managed by the [BGP routing controller](controller/python/README.md). The controller must be deployed and healthy for routing to converge after node changes. Production should validate the controller in a live cluster (node replacement, scale-up, scale-down) and consider porting to Go / controller-runtime for production hardening (see [PRODUCTION-ROADMAP.md § 4F](cluster_bgp_routing/PRODUCTION-ROADMAP.md)).
+1. **NCC spoke, Cloud Router peers, canIpForward, and FRRConfiguration** are managed by the [BGP routing controller](controller/go/README.md). The controller must be deployed and healthy for routing to converge after node changes. Production should validate the controller in a live cluster (node replacement, scale-up, scale-down) (see [PRODUCTION-ROADMAP.md § 4F](cluster_bgp_routing/PRODUCTION-ROADMAP.md)).
 
 2. **Per-node `FRRConfiguration`:** The controller creates one CR per router node, matching GCE instance names from **`Node.spec.providerID`**. Production may prefer a Go controller with a `BGPRoutingConfig` CRD for operator-owned configuration.
 
 3. **Cloud Router interface IPs:** Default allocation uses **`cidrhost(subnet, offset + index)`**; collisions with other hosts must be prevented (override **`router_interface_private_ips`** in Terraform if needed).
 
-4. **IAM (detail):** Principals applying [**`modules/osd-bgp-routing`**](modules/osd-bgp-routing/README.md) need **NCC hub admin** and **network admin** roles. The **controller** uses Terraform [**`controller_gcp_iam/`**](controller_gcp_iam/README.md) (module [**`modules/osd-bgp-controller-iam/`**](modules/osd-bgp-controller-iam/README.md)) plus [`scripts/bgp-controller-gcp-credentials.sh`](scripts/bgp-controller-gcp-credentials.sh); see [controller/python/README.md](controller/python/README.md).
+4. **IAM (detail):** Principals applying [**`modules/osd-bgp-routing`**](modules/osd-bgp-routing/README.md) need **NCC hub admin** and **network admin** roles. The **controller** uses Terraform [**`controller_gcp_iam/`**](controller_gcp_iam/README.md) (module [**`modules/osd-bgp-controller-iam/`**](modules/osd-bgp-controller-iam/README.md)) plus [`scripts/bgp-controller-gcp-credentials.sh`](scripts/bgp-controller-gcp-credentials.sh); see [controller/go/README.md](controller/go/README.md).
 
 5. **ASN policy, session monitoring, BFD:** Production should define **allowed ASNs**, **hold timers**, and **observability** for BGP sessions (beyond what the PoC demonstrates). Align with your org's **Network Connectivity Center** standards.
 

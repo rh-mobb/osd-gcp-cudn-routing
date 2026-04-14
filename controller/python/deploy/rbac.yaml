@@ -15,7 +15,8 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["nodes"]
-    verbs: ["get", "list", "watch", "patch"]
+    # update: controller uses PUT (Update) for node labels; patch alone is not enough.
+    verbs: ["get", "list", "watch", "patch", "update"]
   - apiGroups: ["frrk8s.metallb.io"]
     resources: ["frrconfigurations"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

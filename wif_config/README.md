@@ -36,6 +36,10 @@ make wif.apply
 
 Variables can also be set with `TF_VAR_gcp_project_id`, `TF_VAR_cluster_name`, etc.
 
+## Soft-deleted custom IAM roles
+
+If **`terraform apply`** fails because WIF **`role_id`** values are still **marked for deletion** in GCP after a teardown, run from the repository root **`make wif.undelete-soft-deleted-roles`** (no arguments). That uses this directory’s Terraform inputs and **`gcloud`** to find and undelete matching soft-deleted roles. Details: [**`scripts/README.md`** (section *GCP WIF custom roles — soft delete recovery*)](../scripts/README.md).
+
 ## Keep in sync with `cluster_ilb_routing`
 
 Use the **same** **`gcp_project_id`** and **`cluster_name`** in `wif_config/terraform.tfvars` (or equivalent `TF_VAR_*`) as in **`cluster_ilb_routing/terraform.tfvars`**. Align **`openshift_version`** with the cluster stack: WIF roles use the **x.y** stream, so the **minor** version should match what you deploy (see variables in both directories).

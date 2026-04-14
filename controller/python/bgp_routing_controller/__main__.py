@@ -42,6 +42,10 @@ def _log_config(cfg: ControllerConfig) -> None:
     logger.info("  Worker pool label: %s", cfg.node_label_selector)
     logger.info("  Router label key:  %s", cfg.router_label_key)
     logger.info("  FRR ASN:           %d", cfg.frr_asn)
+    logger.info(
+        "  GCE nested virt:   %s (default on; set ENABLE_GCE_NESTED_VIRTUALIZATION=false to skip; not supported on OSD-GCP)",
+        "on" if cfg.enable_gce_nested_virtualization else "off",
+    )
 
 
 def _run_once() -> int:
@@ -55,11 +59,12 @@ def _run_once() -> int:
     logger.info("Result: %s", result)
     if result.any_change:
         logger.info(
-            "Changes applied — nodes=%d labels=%d canIpForward=%d spokes_changed=%d peers=%s "
+            "Changes applied — nodes=%d labels=%d canIpForward=%d nestedVirt=%d spokes_changed=%d peers=%s "
             "frr_created=%d frr_deleted=%d",
             result.nodes_found,
             result.router_labels_changed,
             result.can_ip_forward_changed,
+            result.nested_virtualization_changed,
             result.spokes_changed,
             result.peers_changed,
             result.frr_created,

@@ -44,7 +44,7 @@ Everything here should land before any non-lab traffic touches the stack. Change
 
 ### E2E Checkpoint -- Phase 1
 
-> **Run a full e2e test** after completing all of Phase 1 — e.g. **`make bgp.run`**, **`make bgp.deploy-controller`** (or **`make controller.run`** / **`controller.watch`**), then **`make bgp.e2e`**, then **`make controller.cleanup`** and **`make bgp.teardown`**. Skip **`controller.*`** only if you are not exercising the controller. This validates that firewall tightening, echo VM changes, and IP reservation haven't broken the data path. If the firewall changes are the only risky items, you can batch 1A-1E into a single test cycle.
+> **Run a full e2e test** after completing all of Phase 1 — e.g. **`make create`** (or **`make bgp.run`**, **`make bgp.deploy-controller`**, **`make bgp.e2e`**; or **`make controller.run`** / **`controller.watch`** instead of deploy-controller), then **`make destroy`** (or **`make bgp.destroy-controller`** and **`make bgp.teardown`**; or **`make controller.cleanup`** only if you keep **`controller_gcp_iam/`**). Skip **`controller.*`** / **`bgp.destroy-controller`** / **`destroy`** only if you are not exercising the controller. This validates that firewall tightening, echo VM changes, and IP reservation haven't broken the data path. If the firewall changes are the only risky items, you can batch 1A-1E into a single test cycle.
 
 ---
 
@@ -134,7 +134,7 @@ These items are for scaling beyond a pilot. They involve larger structural chang
 
 ### 4A -- Dedicated router node pool
 
-- [ ] Design: optional labeled machine pool with smaller instance types dedicated to routing. The controller selects **candidates** via **`NODE_LABEL_KEY`** / **`NODE_LABEL_VALUE`** (default worker label) and marks chosen routers with **`ROUTER_LABEL_KEY`** (default **`node-role.kubernetes.io/bgp-router`**); point these at a dedicated pool when you split routers from general workers.
+- [ ] Design: optional labeled machine pool with smaller instance types dedicated to routing. The controller selects **candidates** via **`NODE_LABEL_KEY`** / **`NODE_LABEL_VALUE`** (default worker label) and marks chosen routers with **`ROUTER_LABEL_KEY`** (default **`cudn.redhat.com/bgp-router`**); point these at a dedicated pool when you split routers from general workers.
 - [x] Controller watches Nodes by label, discovers GCE instances via `providerID`, reconciles `canIpForward`, NCC spoke, BGP peers, and `FRRConfiguration` CRs.
 - [ ] Document cost/performance trade-offs (fewer hops vs dedicated instances; infra-shared vs isolated routers).
 

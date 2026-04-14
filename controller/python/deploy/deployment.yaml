@@ -20,6 +20,7 @@ spec:
         - name: controller
           # Same namespace ImageStream (after oc start-build --from-dir).
           image: image-registry.openshift-image-registry.svc:5000/bgp-routing-system/bgp-routing-controller:latest
+          imagePullPolicy: Always
           envFrom:
             - configMapRef:
                 name: bgp-routing-controller

@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bgp-routing-controller
+  namespace: bgp-routing-system
+  labels:
+    app.kubernetes.io/name: bgp-routing-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bgp-routing-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bgp-routing-controller
+    spec:
+      serviceAccountName: bgp-routing-controller
+      containers:
+        - name: controller
+          image: image-registry.openshift-image-registry.svc:5000/bgp-routing-system/bgp-routing-controller:latest
+          imagePullPolicy: Always
+          args: []
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: bgp-routing-controller
+          env:
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /var/run/secrets/gcp/credential-config.json
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: gcp-credentials
+              mountPath: /var/run/secrets/gcp
+              readOnly: true
+            - name: k8s-sa-wif-token
+              mountPath: /var/run/secrets/tokens/gcp-wif
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: gcp-credentials
+          secret:
+            secretName: bgp-routing-gcp-credentials
+        - name: k8s-sa-wif-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+                  audience: "__BGP_CONTROLLER_WIF_AUDIENCE__"

@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLUSTER_DIR="${ROOT}/cluster_bgp_routing"
 IAM_DIR="${ROOT}/controller_gcp_iam"
-DEPLOY_DIR="${ROOT}/controller/python/deploy"
+DEPLOY_DIR="${ROOT}/controller/go/deploy"
 NS="${BGP_CONTROLLER_NAMESPACE:-bgp-routing-system}"
 
 for cmd in terraform oc gcloud; do
@@ -91,9 +91,10 @@ data:
   NCC_SPOKE_PREFIX: "${SPOKE_PREFIX_Q}"
   FRR_ASN: "${FRR_ASN}"
   NCC_SPOKE_SITE_TO_SITE: "${SITE_STR}"
+  ENABLE_GCE_NESTED_VIRTUALIZATION: "true"
   NODE_LABEL_KEY: "node-role.kubernetes.io/worker"
   NODE_LABEL_VALUE: ""
-  ROUTER_LABEL_KEY: "node-role.kubernetes.io/bgp-router"
+  ROUTER_LABEL_KEY: "cudn.redhat.com/bgp-router"
   INFRA_EXCLUDE_LABEL_KEY: "node-role.kubernetes.io/infra"
   RECONCILE_INTERVAL_SECONDS: "60"
   DEBOUNCE_SECONDS: "5"
@@ -108,9 +109,12 @@ oc apply -f "${DEPLOY_DIR}/buildconfig.yaml"
 WIF_AUDIENCE="$(cd "$IAM_DIR" && terraform output -raw wif_kubernetes_token_audience)"
 sed "s|__BGP_CONTROLLER_WIF_AUDIENCE__|${WIF_AUDIENCE}|g" "${DEPLOY_DIR}/deployment.yaml" | oc apply -f -
 
-echo "=== Step 6/6: Binary build + rollout (${NS}) ==="
-cd "${ROOT}/controller/python"
-oc start-build bgp-routing-controller -n "$NS" --from-dir=. --follow
+echo "=== Step 6/6: Binary build + restart Deployment (${NS}) ==="
+cd "${ROOT}/controller/go"
+# Use --from-dir "${PWD}" not --from-dir=. : on bash, =. can tokenize as sourcing "." with arg "--follow".
+oc start-build bgp-routing-controller -n "$NS" --from-dir="${PWD}" --follow
+# Pushing to the same ImageStreamTag (:latest) does not change the Deployment spec; restart so pods run the new image.
+oc rollout restart "deployment/bgp-routing-controller" -n "$NS"
 oc rollout status "deployment/bgp-routing-controller" -n "$NS" --timeout=600s
 
 echo "=== bgp-deploy-controller-incluster complete ==="

@@ -559,13 +559,11 @@ spec:
       neighbors:
       - address: <RS-subnet1-ep1-IP>
         asn: 65002
-        disableMP: true
         toReceive:
           allowed:
             mode: all
       - address: <RS-subnet1-ep2-IP>
         asn: 65002
-        disableMP: true
         toReceive:
           allowed:
             mode: all

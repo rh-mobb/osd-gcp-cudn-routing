@@ -22,11 +22,15 @@ class ControllerConfig:
 
     ncc_spoke_site_to_site: bool = False
 
+    # When true, set GCE advancedMachineFeatures.enableNestedVirtualization on router VMs
+    # (not supported on OSD-GCP; same API path as canIpForward). Default on; set env false to skip.
+    enable_gce_nested_virtualization: bool = True
+
     # Candidate pool: workers with this label, excluding infra_label_key.
     node_label_key: str = "node-role.kubernetes.io/worker"
     node_label_value: str = ""
 
-    router_label_key: str = "node-role.kubernetes.io/bgp-router"
+    router_label_key: str = "cudn.redhat.com/bgp-router"
     infra_label_key: str = "node-role.kubernetes.io/infra"
 
     frr_namespace: str = "openshift-frr-k8s"
@@ -61,12 +65,15 @@ class ControllerConfig:
             ncc_spoke_site_to_site=os.environ.get(
                 "NCC_SPOKE_SITE_TO_SITE", "false"
             ).lower() in ("true", "1", "yes"),
+            enable_gce_nested_virtualization=os.environ.get(
+                "ENABLE_GCE_NESTED_VIRTUALIZATION", "true"
+            ).lower() in ("true", "1", "yes"),
             node_label_key=os.environ.get(
                 "NODE_LABEL_KEY", "node-role.kubernetes.io/worker"
             ),
             node_label_value=os.environ.get("NODE_LABEL_VALUE", ""),
             router_label_key=os.environ.get(
-                "ROUTER_LABEL_KEY", "node-role.kubernetes.io/bgp-router"
+                "ROUTER_LABEL_KEY", "cudn.redhat.com/bgp-router"
             ),
             infra_label_key=os.environ.get(
                 "INFRA_EXCLUDE_LABEL_KEY", "node-role.kubernetes.io/infra"

@@ -56,11 +56,13 @@ variable "custom_role_title" {
 
 variable "custom_role_permissions" {
   type        = list(string)
-  description = "Permission set for the controller (least privilege for NCC spoke, Cloud Router peers, canIpForward)"
+  description = "Permission set for the controller (least privilege for NCC spoke, Cloud Router peers, GCE instance updates)"
   default = [
     "compute.instances.get",
     "compute.instances.list",
     "compute.instances.update",
+    "compute.networks.get",
+    "compute.networks.updatePolicy",
     "compute.zones.list",
     "networkconnectivity.operations.get",
     "networkconnectivity.spokes.create",

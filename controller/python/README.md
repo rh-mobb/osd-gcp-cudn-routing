@@ -2,7 +2,7 @@
 
 Watches Kubernetes **Node** objects and automatically reconciles the GCP and OpenShift resources that make BGP-based CUDN routing work. When a worker (or router-pool) node is **added, replaced, or removed**, the controller:
 
-1. Enables **`canIpForward`** on the backing GCE instance
+1. Enables **`canIpForward`** on the backing GCE instance and **`advancedMachineFeatures.enableNestedVirtualization`** by default (**`ENABLE_GCE_NESTED_VIRTUALIZATION`**; not supported on OSD-GCP — set **`false`** to skip)
 2. Creates or updates **NCC Router Appliance spokes** (`{NCC_SPOKE_PREFIX}-0`, `{NCC_SPOKE_PREFIX}-1`, …) so every candidate worker is linked (≤8 instances per spoke per GCP limit)
 3. Updates **Cloud Router BGP peers** (2 per node — one per interface)
 4. Creates / updates / deletes **`FRRConfiguration`** CRs so each router node peers with both Cloud Router interface IPs
@@ -58,7 +58,7 @@ Details and destroy order: [`controller_gcp_iam/README.md`](../../controller_gcp
 
 All configuration is via environment variables (see `deploy/configmap.yaml`):
 
-**Router nodes:** The controller lists **worker candidates** with `NODE_LABEL_KEY` / `NODE_LABEL_VALUE`, **excludes** any node that has `INFRA_EXCLUDE_LABEL_KEY` (default **`node-role.kubernetes.io/infra`**), then treats **every remaining node** as a BGP router. Use a **custom** `NODE_LABEL_KEY` / `NODE_LABEL_VALUE` if only some machine pools should peer (for example, bare-metal workers for CUDN while other workers stay out of BGP). Each candidate gets **`ROUTER_LABEL_KEY`** (default **`node-role.kubernetes.io/bgp-router`**). **`make controller.cleanup`** / **`--cleanup`** deletes the **`Deployment`** in **`CONTROLLER_NAMESPACE`** (default **`bgp-routing-system`**) named **`CONTROLLER_DEPLOYMENT_NAME`** (default **`bgp-routing-controller`**) if it exists, then strips **`ROUTER_LABEL_KEY`** from every node that still has it, then removes FRR CRs and GCP resources (all numbered spokes for the prefix, peers, etc.).
+**Router nodes:** The controller lists **worker candidates** with `NODE_LABEL_KEY` / `NODE_LABEL_VALUE`, **excludes** any node that has `INFRA_EXCLUDE_LABEL_KEY` (default **`node-role.kubernetes.io/infra`**), then treats **every remaining node** as a BGP router. Use a **custom** `NODE_LABEL_KEY` / `NODE_LABEL_VALUE` if only some machine pools should peer (for example, bare-metal workers for CUDN while other workers stay out of BGP). Each candidate gets **`ROUTER_LABEL_KEY`** (default **`cudn.redhat.com/bgp-router`**) and, after successful GCP updates, annotations **`cudn.redhat.com/gcp-can-ip-forward`** / **`cudn.redhat.com/gcp-nested-virtualization`** (when nested virt is enabled). **`make controller.cleanup`** / **`--cleanup`** deletes the **`Deployment`** in **`CONTROLLER_NAMESPACE`** (default **`bgp-routing-system`**) named **`CONTROLLER_DEPLOYMENT_NAME`** (default **`bgp-routing-controller`**) if it exists, then strips **`ROUTER_LABEL_KEY`** and those GCP annotations from every node that still has the label, then removes FRR CRs and GCP resources (all numbered spokes for the prefix, peers, etc.).
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -70,9 +70,10 @@ All configuration is via environment variables (see `deploy/configmap.yaml`):
 | `NCC_SPOKE_PREFIX` | yes | | NCC spoke name prefix — controller creates spokes `{prefix}-0`, `{prefix}-1`, … (Terraform output `ncc_spoke_prefix`) |
 | `FRR_ASN` | | `65003` | FRR ASN (must match Terraform `frr_asn`) |
 | `NCC_SPOKE_SITE_TO_SITE` | | `false` | site_to_site_data_transfer on each NCC spoke |
+| `ENABLE_GCE_NESTED_VIRTUALIZATION` | | `true` | Sets GCE nested virtualization on each router VM; **`false`** disables (**unsupported** on OSD-GCP) |
 | `NODE_LABEL_KEY` | | `node-role.kubernetes.io/worker` | Label selector for **candidate** workers (not infra) |
 | `NODE_LABEL_VALUE` | | _(empty = key-exists)_ | Candidate label value (empty matches any value) |
-| `ROUTER_LABEL_KEY` | | `node-role.kubernetes.io/bgp-router` | Label applied to **all** candidate router nodes |
+| `ROUTER_LABEL_KEY` | | `cudn.redhat.com/bgp-router` | Label applied to **all** candidate router nodes |
 | `INFRA_EXCLUDE_LABEL_KEY` | | `node-role.kubernetes.io/infra` | Candidates with this label key are skipped |
 | `RECONCILE_INTERVAL_SECONDS` | | `60` | Periodic drift reconciliation interval |
 | `DEBOUNCE_SECONDS` | | `5` | Minimum time between event-driven reconciliations |
@@ -168,13 +169,14 @@ From `controller/python/` (so the Docker build context includes the `Dockerfile`
 make deploy-openshift
 # Same as:
 #   oc apply -k deploy/
-#   oc start-build bgp-routing-controller -n bgp-routing-system --from-dir=. --follow
+#   oc start-build bgp-routing-controller -n bgp-routing-system --from-dir="$PWD" --follow
+#   oc rollout restart deployment/bgp-routing-controller -n bgp-routing-system
 #   oc rollout status deployment/bgp-routing-controller -n bgp-routing-system --timeout=180s
 ```
 
 Override namespace with `NS=my-namespace make deploy-openshift`.
 
-The `BuildConfig` uses **Binary** source and **`triggers: []`**, so nothing uploads until you run `oc start-build … --from-dir=.`. The `Deployment` image is `image-registry.openshift-image-registry.svc:5000/bgp-routing-system/bgp-routing-controller:latest` — expect **`ImagePullBackOff` until the first build finishes**.
+The `BuildConfig` uses **Binary** source and **`triggers: []`**, so nothing uploads until you run `oc start-build … --from-dir` with the controller source directory (e.g. **`--from-dir="$PWD"`** from that directory — avoid **`--from-dir=.`** in scripts; bash can misparse it). The `Deployment` image is `image-registry.openshift-image-registry.svc:5000/bgp-routing-system/bgp-routing-controller:latest` — expect **`ImagePullBackOff` until the first build finishes**.
 
 3. **Local image only (podman / external registry)**
 

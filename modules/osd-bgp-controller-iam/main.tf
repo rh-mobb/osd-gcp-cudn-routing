@@ -2,7 +2,7 @@ resource "google_project_iam_custom_role" "bgp_routing_controller" {
   project     = var.project_id
   role_id     = var.custom_role_id
   title       = var.custom_role_title
-  description = "Least-privilege role for the BGP routing controller (NCC spoke, Cloud Router BGP peers, canIpForward)."
+  description = "Least-privilege role for the BGP routing controller (NCC spoke, Cloud Router BGP peers, GCE instance update for canIpForward and nested virtualization, VPC get/updatePolicy for router and instance validation on some topologies)."
   permissions = var.custom_role_permissions
 }
 
