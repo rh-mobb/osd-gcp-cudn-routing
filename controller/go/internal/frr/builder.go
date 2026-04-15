@@ -48,10 +48,12 @@ func BuildFRRConfiguration(
 	var rawLines []string
 	rawLines = append(rawLines, fmt.Sprintf("      router bgp %d", frrASN))
 	for _, crIP := range topology.InterfaceIPs {
-		// Omit disableMP: MetalLB/frr-k8s deprecated it; default neighbor behavior matches former disableMP=true.
+		// OVN-K RouteAdvertisements rejects neighbors with disableMP false/absent as serialized
+		// ("DisableMP==false not supported"). MetalLB may deprecate the field; set true for OVN merge.
 		neighbors = append(neighbors, map[string]any{
-			"address": crIP,
-			"asn":     topology.CloudRouterASN,
+			"address":    crIP,
+			"asn":        topology.CloudRouterASN,
+			"disableMP":  true,
 			"toReceive": map[string]any{
 				"allowed": map[string]any{"mode": "all"},
 			},

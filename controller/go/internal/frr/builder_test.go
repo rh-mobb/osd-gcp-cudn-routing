@@ -47,8 +47,9 @@ func TestBuildFRRConfiguration(t *testing.T) {
 	neighbors := r0["neighbors"].([]any)
 	require.Len(t, neighbors, 2)
 	for _, nb := range neighbors {
-		_, has := nb.(map[string]any)["disableMP"]
-		require.False(t, has, "disableMP is deprecated in MetalLB/frr-k8s; omit it")
+		v, ok := nb.(map[string]any)["disableMP"]
+		require.True(t, ok, "disableMP required for OVN-K RouteAdvertisements neighbor merge")
+		require.Equal(t, true, v)
 	}
 
 	prio, found, err := unstructured.NestedInt64(u.Object, "spec", "raw", "priority")

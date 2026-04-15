@@ -36,21 +36,23 @@ help:
 	@echo ""
 	@echo "  (ILB reference stack lives under archive/ — see archive/README.md and archive/scripts/ilb-*.sh.)"
 	@echo ""
-	@echo "  create        quick start: bgp.run + bgp.deploy-controller + bgp.e2e (sequential)"
-	@echo "  destroy       bgp.destroy-controller + bgp.teardown (full stack teardown)"
+	@echo "  create        bgp.run + bgp.deploy-controller (GHCR image); prints oc get nodes … + make bgp.e2e reminder (does not run e2e)"
+	@echo "  dev           bgp.run + in-cluster binary build; same reminder as create (does not run e2e)"
+	@echo "  post-controller-deploy-msg  print watch oc get nodes (BGP label, Ready) / make bgp.e2e (after deploy-controller)"
+	@echo "  destroy       bgp.destroy-controller + bgp.teardown (full stack teardown; all terraform destroy steps use -auto-approve)"
 	@echo ""
 	@echo "  bgp.run       full deploy: WIF, cluster single apply (BGP+NCC+echo VM), oc login, cluster_bgp_routing configure-routing.sh"
 	@echo "  bgp.teardown  terraform destroy $(CLUSTER_BGP_DIR)/ then $(WIF_DIR)/ (-auto-approve); run bgp.destroy-controller first if you used the in-cluster controller"
 	@echo "  bgp.e2e       CUDN pod ↔ echo VM checks ($(CLUSTER_BGP_DIR)/; requires oc + gcloud logged in)"
 	@echo "  bgp.phase1-baseline  fix-bgp-ra Phase 1: router nodes, RA nodeSelector, FRR CRs, debug-gcp-bgp (oc + terraform + gcloud)"
-	@echo "  bgp.deploy-controller  After bgp.run: IAM + WIF Secret + ConfigMap from TF + build + rollout restart + rollout status"
-	@echo "  bgp.destroy-controller  controller.cleanup then controller_gcp_iam terraform destroy (before bgp.teardown)"
+	@echo "  bgp.deploy-controller  After bgp.run: IAM + WIF Secret + ConfigMap from TF + (build or prebuilt image) + rollout"
+	@echo "  bgp.destroy-controller  controller.cleanup then controller_gcp_iam terraform destroy -auto-approve (before bgp.teardown)"
 	@echo ""
 	@echo "  controller.venv      (Python only) Create venv under controller/python/"
 	@echo "  controller.run       One-shot reconciliation (reads terraform output; Go controller)"
 	@echo "  controller.watch     Run the long-lived controller (Go / controller-runtime)"
 	@echo "  controller.test      go test ./... under controller/go"
-	@echo "  controller.cleanup   Delete controller Deployment (if any), peers, NCC spokes, FRR, router labels"
+	@echo "  controller.cleanup   Delete controller Deployment (if any), peers, NCC spokes, FRR, router labels (no-op with warning if cluster Terraform has no outputs)"
 	@echo "  controller.build     Compile the Go controller binary (go build under $(CONTROLLER_DIR)/)"
 	@echo "  controller.docker-build  Build the controller container image (podman; $(CONTROLLER_DIR)/Dockerfile)"
 	@echo "  controller.deploy-openshift  Apply deploy/ + BuildConfig binary build + rollout"
@@ -60,13 +62,13 @@ help:
 	@echo "  wif.init      terraform init -upgrade in $(WIF_DIR)/"
 	@echo "  wif.plan      terraform plan in $(WIF_DIR)/"
 	@echo "  wif.apply     terraform apply in $(WIF_DIR)/ (run before cluster apply)"
-	@echo "  wif.destroy   terraform destroy in $(WIF_DIR)/ (after cluster destroy)"
+	@echo "  wif.destroy   terraform destroy -auto-approve in $(WIF_DIR)/ (after cluster destroy)"
 	@echo "  wif.undelete-soft-deleted-roles  Undelete soft-deleted WIF custom roles (reads wif_config/ Terraform + gcloud; optional WIF_UNDELETE_ARGS; see scripts/README.md)"
 	@echo ""
 	@echo "  init          terraform init -upgrade in $(CLUSTER_BGP_DIR)/ (same root as bgp.init)"
 	@echo "  plan          terraform plan in $(CLUSTER_BGP_DIR)/"
 	@echo "  apply         terraform apply in $(CLUSTER_BGP_DIR)/"
-	@echo "  cluster.destroy  terraform destroy in $(CLUSTER_BGP_DIR)/ only (expert; not WIF / controller IAM)"
+	@echo "  cluster.destroy  terraform destroy -auto-approve in $(CLUSTER_BGP_DIR)/ only (expert; not WIF / controller IAM)"
 	@echo "  bgp.init      terraform init -upgrade in $(CLUSTER_BGP_DIR)/"
 	@echo "  bgp.plan      terraform plan in $(CLUSTER_BGP_DIR)/"
 	@echo "  bgp.apply     terraform apply in $(CLUSTER_BGP_DIR)/"
@@ -79,20 +81,44 @@ help:
 	@echo "See README.md for prerequisites and workflow; scripts/README.md for bgp.run env vars."
 	@echo "Naming: stack.action with dots; multi-word segments use hyphens (e.g. controller.gcp-iam.init)."
 
-.PHONY: create destroy bgp.run bgp.teardown bgp.e2e bgp.phase1-baseline bgp.deploy-controller bgp.destroy-controller
+CREATE_CONTROLLER_IMAGE ?= ghcr.io/rh-mobb/osd-gcp-cudn-routing/bgp-controller-go:latest
+# Namespace for in-cluster controller (match BGP_CONTROLLER_NAMESPACE in bgp-deploy-controller-incluster.sh).
+BGP_CONTROLLER_NAMESPACE ?= bgp-routing-system
+
+.PHONY: create dev post-controller-deploy-msg destroy bgp.run bgp.teardown bgp.e2e bgp.phase1-baseline bgp.deploy-controller bgp.destroy-controller
+post-controller-deploy-msg:
+	@echo ""
+	@echo "=== Controller deployed ($(BGP_CONTROLLER_NAMESPACE)/deployment/bgp-routing-controller) ==="
+	@echo "Watch nodes with the BGP router label until every listed node has STATUS Ready (expected worker count), then run connectivity checks:"
+	@echo "  watch 'oc get nodes -l cudn.redhat.com/bgp-router='"
+	@echo "  (Ctrl+C to stop watch.)"
+	@echo "  make bgp.e2e"
+
 create:
 	@$(MAKE) bgp.run
+	@$(MAKE) bgp.deploy-controller BGP_CONTROLLER_PREBUILT_IMAGE="$(CREATE_CONTROLLER_IMAGE)"
+	@$(MAKE) post-controller-deploy-msg
+
+dev:
+	@$(MAKE) bgp.run
 	@$(MAKE) bgp.deploy-controller
-	@$(MAKE) bgp.e2e
+	@$(MAKE) post-controller-deploy-msg
 
 destroy:
+	@echo "=== make destroy: full stack teardown ==="
+	@echo ">>> Phase 1/2: bgp.destroy-controller (in-cluster cleanup + controller_gcp_iam/)"
 	@$(MAKE) bgp.destroy-controller
+	@echo ""
+	@echo ">>> Phase 2/2: bgp.teardown (cluster_bgp_routing/ then wif_config/)"
 	@$(MAKE) bgp.teardown
+	@echo ""
+	@echo "=== make destroy: finished ==="
 
 bgp.run:
 	@bash "$(CURDIR)/scripts/bgp-apply.sh" $(TF_VARS) $(EXTRA_TF_VARS)
 
 bgp.teardown:
+	@echo ">>> bgp.teardown: scripts/bgp-destroy.sh"
 	@bash "$(CURDIR)/scripts/bgp-destroy.sh" $(TF_VARS) $(EXTRA_TF_VARS)
 
 bgp.e2e:
@@ -105,8 +131,14 @@ bgp.deploy-controller:
 	@bash "$(CURDIR)/scripts/bgp-deploy-controller-incluster.sh" $(TF_VARS) $(EXTRA_TF_VARS)
 
 bgp.destroy-controller:
+	@echo "=== bgp.destroy-controller ==="
+	@echo ">>> Step 1/2: controller.cleanup (OpenShift + GCP resources managed by the controller)"
 	@$(MAKE) controller.cleanup
+	@echo ""
+	@echo ">>> Step 2/2: controller.gcp-iam.destroy (Terraform in $(CONTROLLER_GCP_IAM_DIR)/)"
 	@$(MAKE) controller.gcp-iam.destroy
+	@echo ""
+	@echo "=== bgp.destroy-controller: finished ==="
 
 .PHONY: wif.init wif.plan wif.apply wif.destroy wif.undelete-soft-deleted-roles
 wif.init:
@@ -119,7 +151,7 @@ wif.apply: wif.init
 	@cd $(WIF_DIR) && terraform apply $(TF_VARS) $(EXTRA_TF_VARS)
 
 wif.destroy: wif.init
-	@cd $(WIF_DIR) && terraform destroy $(TF_VARS) $(EXTRA_TF_VARS)
+	@cd $(WIF_DIR) && terraform destroy -auto-approve $(TF_VARS) $(EXTRA_TF_VARS)
 
 wif.undelete-soft-deleted-roles:
 	@bash "$(CURDIR)/scripts/gcp-undelete-wif-custom-roles.sh" $(WIF_UNDELETE_ARGS)
@@ -138,7 +170,7 @@ apply: init
 
 .PHONY: cluster.destroy
 cluster.destroy: init
-	@cd $(CLUSTER_BGP_DIR) && terraform destroy $(TF_VARS) $(EXTRA_TF_VARS)
+	@cd $(CLUSTER_BGP_DIR) && terraform destroy -auto-approve $(TF_VARS) $(EXTRA_TF_VARS)
 
 .PHONY: bgp.init bgp.plan bgp.apply
 bgp.init:
@@ -164,6 +196,7 @@ controller.test:
 	@$(MAKE) -C $(CONTROLLER_DIR) test
 
 controller.cleanup:
+	@echo ">>> controller.cleanup: $(CONTROLLER_DIR) (go run ... --cleanup)"
 	@$(MAKE) -C $(CONTROLLER_DIR) cleanup
 
 controller.build:
@@ -186,7 +219,8 @@ controller.gcp-iam.apply: controller.gcp-iam.init
 	@cd $(CONTROLLER_GCP_IAM_DIR) && terraform apply $(TF_VARS) $(EXTRA_TF_VARS)
 
 controller.gcp-iam.destroy: controller.gcp-iam.init
-	@cd $(CONTROLLER_GCP_IAM_DIR) && terraform destroy $(TF_VARS) $(EXTRA_TF_VARS)
+	@echo ">>> controller.gcp-iam.destroy: terraform destroy in $(CONTROLLER_GCP_IAM_DIR)/"
+	@cd $(CONTROLLER_GCP_IAM_DIR) && terraform destroy -auto-approve $(TF_VARS) $(EXTRA_TF_VARS)
 
 controller.gcp-credentials:
 	@CONTROLLER_GCP_IAM_DIR="$(CURDIR)/$(CONTROLLER_GCP_IAM_DIR)" \

@@ -18,7 +18,7 @@ spec:
       serviceAccountName: bgp-routing-controller
       containers:
         - name: controller
-          image: image-registry.openshift-image-registry.svc:5000/bgp-routing-system/bgp-routing-controller:latest
+          image: __BGP_CONTROLLER_IMAGE__
           imagePullPolicy: Always
           args: []
           ports:

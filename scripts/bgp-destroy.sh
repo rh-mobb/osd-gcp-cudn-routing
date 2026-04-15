@@ -13,15 +13,17 @@ command -v terraform >/dev/null 2>&1 || {
   exit 1
 }
 
-echo "=== Destroy cluster stack (${CLUSTER_DIR}) ==="
+echo "=== bgp.teardown: step 1/2 - Terraform destroy cluster_bgp_routing (${CLUSTER_DIR}) ==="
 cd "$CLUSTER_DIR"
 terraform init -upgrade
 terraform destroy -auto-approve "$@"
 
-echo "=== Destroy WIF (${WIF_DIR}) ==="
+echo ""
+echo "=== bgp.teardown: step 2/2 - Terraform destroy wif_config (${WIF_DIR}) ==="
 cd "$WIF_DIR"
 terraform init -upgrade
 terraform destroy -auto-approve "$@"
 
-echo "=== bgp-destroy complete ==="
+echo ""
+echo "=== bgp.teardown: scripts/bgp-destroy.sh finished ==="
 echo "If you created OpenShift resources by hand, delete them separately (see README teardown)."

@@ -108,7 +108,8 @@ Details: [archive/ILB-vs-BGP.md § Additional IAM Requirements](../archive/ILB-v
 From the **repo root**:
 
 ```bash
-make create                  # bgp.run + bgp.deploy-controller + bgp.e2e
+make create                  # bgp.run + bgp.deploy-controller (GHCR); then watch oc get nodes … until Ready, make bgp.e2e
+make dev                     # same with in-cluster binary build; then watch oc get nodes … until Ready, make bgp.e2e
 # When finished:
 make destroy                 # bgp.destroy-controller + bgp.teardown
 ```

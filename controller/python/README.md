@@ -5,7 +5,7 @@ Watches Kubernetes **Node** objects and automatically reconciles the GCP and Ope
 1. Enables **`canIpForward`** on the backing GCE instance and **`advancedMachineFeatures.enableNestedVirtualization`** by default (**`ENABLE_GCE_NESTED_VIRTUALIZATION`**; not supported on OSD-GCP — set **`false`** to skip)
 2. Creates or updates **NCC Router Appliance spokes** (`{NCC_SPOKE_PREFIX}-0`, `{NCC_SPOKE_PREFIX}-1`, …) so every candidate worker is linked (≤8 instances per spoke per GCP limit)
 3. Updates **Cloud Router BGP peers** (2 per node — one per interface)
-4. Creates / updates / deletes **`FRRConfiguration`** CRs so each router node peers with both Cloud Router interface IPs
+4. Creates / updates / deletes **`FRRConfiguration`** CRs so each router node peers with both Cloud Router interface IPs (each neighbor sets **`disableMP: true`** for **OVN-K `RouteAdvertisements`** merge; MetalLB may warn the field is deprecated)
 
 Terraform manages only the **static** infrastructure (NCC hub, Cloud Router, interfaces, firewalls). The controller owns all **dynamic** resources that change with node lifecycle.
 
@@ -108,10 +108,11 @@ make run
 make watch
 
 # Teardown: delete in-cluster Deployment (if any), peers, spoke, FRR CRs, router labels
+# (skips with a warning if cluster Terraform has no outputs — e.g. stack already destroyed)
 make cleanup
 ```
 
-Both targets read all required env vars from `terraform output` in `../../cluster_bgp_routing/` (override with `TF_DIR=path/to/cluster_bgp_routing`). They use `~/.config/gcloud/application_default_credentials.json` for GCP auth — run `gcloud auth application-default login` first.
+Both targets read required env vars from **`terraform output -json`** in **`../../cluster_bgp_routing/`** via **[`scripts/terraform-controller-env-from-json.sh`](../../scripts/terraform-controller-env-from-json.sh)** (needs **`python3`** on **`PATH`**; override with **`TF_DIR=path/to/cluster_bgp_routing`**). They use **`~/.config/gcloud/application_default_credentials.json`** for GCP auth — run **`gcloud auth application-default login`** first.
 
 **Manual setup (without Make):**
 

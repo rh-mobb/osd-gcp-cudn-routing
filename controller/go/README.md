@@ -2,6 +2,8 @@
 
 Production-oriented rewrite of the [Python / kopf controller](../python/README.md) using **controller-runtime**. It watches **Nodes**, reconciles **GCP** (NCC spokes, Cloud Router BGP peers, `canIpForward`, nested virtualization by default) and **`FRRConfiguration`** CRs (`frrk8s.metallb.io/v1beta1`) as unstructured objects.
 
+Each Cloud Router neighbor includes **`disableMP: true`** so **OVN-K `RouteAdvertisements`** can merge **`ovnk-generated-*`** configs (MetalLB may log a deprecation warning; omitting the field breaks RA acceptance).
+
 ## Configuration
 
 Environment variables match the Python controller (see [deploy/configmap.yaml](deploy/configmap.yaml)).
@@ -17,7 +19,7 @@ go test ./...
 go build -o bin/manager ./cmd/main.go
 ```
 
-- **`make run`** / **`make watch`** / **`make cleanup`** — load env from **`cluster_bgp_routing`** `terraform output` (same pattern as the Python Makefile), then `go run ./cmd/main.go` with `--once` or default manager or `--cleanup`.
+- **`make run`** / **`make watch`** / **`make cleanup`** — load env from **`cluster_bgp_routing`** via **`terraform output -json`** (**[`scripts/terraform-controller-env-from-json.sh`](../../scripts/terraform-controller-env-from-json.sh)**; needs **`python3`** on **`PATH`**) so an empty state does not capture **`terraform output -raw`** warning text into variables, then `go run ./cmd/main.go` with **`--once`**, default manager, or **`--cleanup`**. **`make cleanup`** skips **`--cleanup`** with a warning when **`CLOUD_ROUTER_NAME`** is empty (stack already torn down or wrong **`TF_DIR`**).
 - **`make docker-build`** — `podman build` using the [Dockerfile](Dockerfile) (multi-stage: **UBI 9** + **`yum install go-toolset`** build, **UBI 9 Minimal** runtime with CA certificates).
 
 ## In-cluster (OpenShift)
@@ -28,7 +30,7 @@ From this directory:
 make deploy-openshift
 ```
 
-This applies [deploy/](deploy/) via `oc kustomize`, substitutes the WIF audience, runs **`oc start-build … --from-dir` $PWD** (avoid **`--from-dir=.`** in shell scripts — bash can misparse it as the **`.`** builtin), then **`oc rollout restart`** on the Deployment (same **`ImageStreamTag :latest`** does not change pod spec by itself) and **`oc rollout status`**. The repo root **`make bgp.deploy-controller`** uses [scripts/bgp-deploy-controller-incluster.sh](../../scripts/bgp-deploy-controller-incluster.sh) with **`controller/go/deploy`**.
+This applies [deploy/](deploy/) via `oc kustomize`, substitutes **`__BGP_CONTROLLER_WIF_AUDIENCE__`** and **`__BGP_CONTROLLER_IMAGE__`** (internal **`ImageStream`** URL), runs **`oc start-build … --from-dir` $PWD** (avoid **`--from-dir=.`** in shell scripts — bash can misparse it as the **`.`** builtin), then **`oc rollout restart`** on the Deployment (same **`ImageStreamTag :latest`** does not change pod spec by itself) and **`oc rollout status`**. The repo root **`make bgp.deploy-controller`** uses [scripts/bgp-deploy-controller-incluster.sh](../../scripts/bgp-deploy-controller-incluster.sh) with **`controller/go/deploy`**; set **`BGP_CONTROLLER_PREBUILT_IMAGE`** to skip **`ImageStream`** / **`BuildConfig`** / **`oc start-build`** (**`make create`** sets it to the published **GHCR** image).
 
 ### Workload Identity Federation (ADC in the pod)
 

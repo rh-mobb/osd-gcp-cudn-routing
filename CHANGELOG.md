@@ -7,13 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`make create`** / **`make dev`** — **`create`** now deploys the published Go controller image from **GHCR** (**`ghcr.io/rh-mobb/osd-gcp-cudn-routing/bgp-controller-go:latest`** by default; override with **`CREATE_CONTROLLER_IMAGE`**) via **`BGP_CONTROLLER_PREBUILT_IMAGE`** in **`scripts/bgp-deploy-controller-incluster.sh`** (skips ImageStream, BuildConfig, and **`oc start-build`**). **`dev`** matches the former **`create`** flow (in-cluster binary build). **`bgp.deploy-controller`** honors **`BGP_CONTROLLER_PREBUILT_IMAGE`** when set manually. Neither **`create`** nor **`dev`** runs **`bgp.e2e`**; they print **`post-controller-deploy-msg`** (**`watch 'oc get nodes -l cudn.redhat.com/bgp-router='`** until every listed node is **Ready**, then **`make bgp.e2e`**).
+
 ### Fixed
+
+- **`controller/go` / `controller/python` Makefiles (`run`, `watch`, `cleanup`)** — load cluster Terraform config via **`terraform output -json`** (**[`scripts/terraform-controller-env-from-json.sh`](scripts/terraform-controller-env-from-json.sh)**) instead of repeated **`terraform output -raw`**. When state has no outputs, Terraform can print a **“No outputs found”** warning to stdout and still exit **0**, which was captured into **`FRR_ASN`** and broke **`strconv.Atoi`** during **`make destroy`** / **`controller.cleanup`**. **`cleanup`** alone now **no-ops with a warning** when **`CLOUD_ROUTER_NAME`** is still empty after that (e.g. **`cluster_bgp_routing`** already destroyed) so **`make destroy`** can continue to **`bgp.teardown`**.
 
 - **Controller `ClusterRole` (Go + Python `deploy/rbac.yaml`)** — grant **`update`** on **`nodes`** (not only **`patch`**): node label changes use **`client.Update`**, so without **`update`** the API rejects writes and the router label never appears (errors were previously ignored in **`SyncRouterLabels`**).
 
 - **`controller/go/internal/reconciler/nodes.go`** — **`SyncRouterLabels`**, **`removeRouterLabelFromNonSelected`**, and **`RemoveAllRouterLabels`** return node **`Update`** errors instead of ignoring them.
 
-- **FRRConfiguration neighbors (Go + Python)** — stop setting deprecated **`disableMP`** (MetalLB/frr-k8s warns at reconcile time; default behavior matches the old **`true`** case for IPv4/IPv6 family matching).
+- **FRRConfiguration neighbors (Go + Python)** — set **`disableMP: true`** again on Cloud Router neighbors. Omitting the field serializes as false; **OVN-K `RouteAdvertisements`** then stays **Not Accepted** with **`DisableMP==false not supported`**, so CUDN prefixes never merge into FRR and GCP sees **`numLearnedRoutes: 0`** for the CUDN CIDR.
 
 - **Go controller logs** — each reconcile logs **start** / **completed** (counts and **`anyChange`**) from **`BGPReconciler`**; **`reconciler.Reconcile`** logs candidate selection, NCC / Cloud Router / FRR phases, and notable mutations. **`--once`** passes a logger **`IntoContext`** so the same phase logs appear locally.
 
@@ -31,11 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Root `Makefile` help** — **`controller.build`** was documented as a container image build but only runs **`go build`** for the local binary; **`make controller.docker-build`** (delegates to **`controller/go` `docker-build`**) documents the image build path.
 
-- **`scripts/bgp-apply.sh`** (**`make bgp.run`** / **`make create`**) — waits for the cluster API TLS certificate to verify against system CAs (probes **`/version`** with **`curl`**) before **`oc login`**, avoiding non-interactive hangs on the “unknown authority” prompt while OCM rolls out a public CA. Configurable via **`OC_WAIT_API_TLS_MAX_SEC`** and **`OC_WAIT_API_TLS_INTERVAL_SEC`**; skipped when **`OC_LOGIN_EXTRA_ARGS`** contains **`--insecure-skip-tls-verify`**. Documented in **`scripts/README.md`**.
+- **`scripts/bgp-apply.sh`** (**`make bgp.run`** / **`make create`** / **`make dev`**) — waits for the cluster API TLS certificate to verify against system CAs (probes **`/version`** with **`curl`**) before **`oc login`**, avoiding non-interactive hangs on the “unknown authority” prompt while OCM rolls out a public CA. Configurable via **`OC_WAIT_API_TLS_MAX_SEC`** and **`OC_WAIT_API_TLS_INTERVAL_SEC`**; skipped when **`OC_LOGIN_EXTRA_ARGS`** contains **`--insecure-skip-tls-verify`**. Documented in **`scripts/README.md`**.
 
 - **`scripts/gcp-undelete-wif-custom-roles.sh`** — auto mode no longer relied on **`deleted: true`** in **`gcloud iam roles list --format=json`** (that field is not present in list output). Soft-deleted roles are detected by set-differencing role **`name`** lists with vs without **`--show-deleted`**. When that diff is empty but **`apply`** can still fail, the script prints **`gcloud`** list line counts and guidance for the **role_id tombstone** case (**`describe`** / **`undelete`** **`NOT_FOUND`**). **`scripts/README.md`** documents Terraform provider limits and manual **`gcloud`** checks.
 
 ### Changed
+
+- **`make destroy`** / **`make bgp.destroy-controller`** / **`make bgp.teardown`** — print labeled phases and steps (Makefile **`echo`** plus clearer headers in **`scripts/bgp-destroy.sh`**) so teardown order is obvious in the log.
+
+- **Root `Makefile`** — **`controller.gcp-iam.destroy`**, **`wif.destroy`**, and **`cluster.destroy`** now run **`terraform destroy -auto-approve`** (same non-interactive behavior as **`bgp.teardown`** / **`scripts/bgp-destroy.sh`**).
 
 - **Router marker label (default `ROUTER_LABEL_KEY`)** — default is now **`cudn.redhat.com/bgp-router`** instead of **`node-role.kubernetes.io/bgp-router`** (OCM-friendly). Go + Python config defaults, **`deploy/configmap.yaml`**, and **`scripts/bgp-deploy-controller-incluster.sh`** updated.
 

@@ -361,7 +361,7 @@ The controller creates one `FRRConfiguration` per worker:
 
 - **Name**: `bgp-{instance-name}` (sanitized, max 50 chars).
 - **`nodeSelector`**: `kubernetes.io/hostname: {node-name}` (single-node targeting).
-- **Neighbors**: both Cloud Router interface IPs, with `toReceive.allowed.mode: all` ( **`disableMP`** omitted — deprecated in MetalLB; defaults match former **`true`** ).
+- **Neighbors**: both Cloud Router interface IPs, with `toReceive.allowed.mode: all` and **`disableMP: true`**. MetalLB/frr-k8s may warn that the field is deprecated, but **OVN-K `RouteAdvertisements`** rejects neighbors when **`DisableMP`** is false or omitted (serialized false), with **`Not Accepted: DisableMP==false not supported`** — so the controller must set **`true`** for CUDN prefix merge and GCP learned routes.
 - **`spec.raw`**: `neighbor {cr-ip} disable-connected-check` for each neighbor (required because GCP workers use `/32` on `br-ex`).
 
 ### RouteAdvertisements

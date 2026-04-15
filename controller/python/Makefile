@@ -8,6 +8,7 @@ IMAGE     ?= bgp-routing-controller:latest
 TF_DIR     ?= ../../cluster_bgp_routing
 IAM_TF_DIR ?= ../../controller_gcp_iam
 NS         ?= bgp-routing-system
+CONTROLLER_TF_ENV_SCRIPT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../scripts/terraform-controller-env-from-json.sh)
 
 .PHONY: help
 help:
@@ -48,13 +49,7 @@ run: venv
 	@set -e; \
 	TF_DIR="$(TF_DIR)"; \
 	cd "$$TF_DIR"; \
-	export GCP_PROJECT=`terraform output -raw gcp_project_id 2>/dev/null || true`; \
-	export CLUSTER_NAME=`terraform output -raw cluster_name 2>/dev/null || true`; \
-	export CLOUD_ROUTER_NAME=`terraform output -raw cloud_router_name 2>/dev/null || true`; \
-	export CLOUD_ROUTER_REGION=`terraform output -raw gcp_region 2>/dev/null || true`; \
-	export NCC_HUB_NAME=`terraform output -raw ncc_hub_name 2>/dev/null || true`; \
-	export NCC_SPOKE_PREFIX=`terraform output -raw ncc_spoke_prefix 2>/dev/null || true`; \
-	export FRR_ASN=`terraform output -raw frr_asn 2>/dev/null || true`; \
+	eval "$$($(CONTROLLER_TF_ENV_SCRIPT))"; \
 	export GOOGLE_APPLICATION_CREDENTIALS="$${GOOGLE_APPLICATION_CREDENTIALS:-$$HOME/.config/gcloud/application_default_credentials.json}"; \
 	export KUBECONFIG="$${KUBECONFIG:-$$HOME/.kube/config}"; \
 	echo "  GCP_PROJECT:         $$GCP_PROJECT"; \
@@ -77,13 +72,7 @@ watch: venv
 	@set -e; \
 	TF_DIR="$(TF_DIR)"; \
 	cd "$$TF_DIR"; \
-	export GCP_PROJECT=`terraform output -raw gcp_project_id 2>/dev/null || true`; \
-	export CLUSTER_NAME=`terraform output -raw cluster_name 2>/dev/null || true`; \
-	export CLOUD_ROUTER_NAME=`terraform output -raw cloud_router_name 2>/dev/null || true`; \
-	export CLOUD_ROUTER_REGION=`terraform output -raw gcp_region 2>/dev/null || true`; \
-	export NCC_HUB_NAME=`terraform output -raw ncc_hub_name 2>/dev/null || true`; \
-	export NCC_SPOKE_PREFIX=`terraform output -raw ncc_spoke_prefix 2>/dev/null || true`; \
-	export FRR_ASN=`terraform output -raw frr_asn 2>/dev/null || true`; \
+	eval "$$($(CONTROLLER_TF_ENV_SCRIPT))"; \
 	export GOOGLE_APPLICATION_CREDENTIALS="$${GOOGLE_APPLICATION_CREDENTIALS:-$$HOME/.config/gcloud/application_default_credentials.json}"; \
 	export KUBECONFIG="$${KUBECONFIG:-$$HOME/.kube/config}"; \
 	echo "  GCP_PROJECT:         $$GCP_PROJECT"; \
@@ -106,15 +95,13 @@ cleanup: venv
 	@set -e; \
 	TF_DIR="$(TF_DIR)"; \
 	cd "$$TF_DIR"; \
-	export GCP_PROJECT=`terraform output -raw gcp_project_id 2>/dev/null || true`; \
-	export CLUSTER_NAME=`terraform output -raw cluster_name 2>/dev/null || true`; \
-	export CLOUD_ROUTER_NAME=`terraform output -raw cloud_router_name 2>/dev/null || true`; \
-	export CLOUD_ROUTER_REGION=`terraform output -raw gcp_region 2>/dev/null || true`; \
-	export NCC_HUB_NAME=`terraform output -raw ncc_hub_name 2>/dev/null || true`; \
-	export NCC_SPOKE_PREFIX=`terraform output -raw ncc_spoke_prefix 2>/dev/null || true`; \
-	export FRR_ASN=`terraform output -raw frr_asn 2>/dev/null || true`; \
+	eval "$$($(CONTROLLER_TF_ENV_SCRIPT))"; \
 	export GOOGLE_APPLICATION_CREDENTIALS="$${GOOGLE_APPLICATION_CREDENTIALS:-$$HOME/.config/gcloud/application_default_credentials.json}"; \
 	export KUBECONFIG="$${KUBECONFIG:-$$HOME/.kube/config}"; \
+	if [ -z "$$CLOUD_ROUTER_NAME" ]; then \
+	  echo "WARN: cluster Terraform has no outputs under $$TF_DIR (CLOUD_ROUTER_NAME empty). Skipping controller --cleanup; continue teardown (e.g. cluster stack already destroyed). If the controller ran, remove in-cluster resources manually if needed." >&2; \
+	  exit 0; \
+	fi; \
 	echo "  GCP_PROJECT:         $$GCP_PROJECT"; \
 	echo "  CLUSTER_NAME:        $$CLUSTER_NAME"; \
 	echo "  CLOUD_ROUTER_NAME:   $$CLOUD_ROUTER_NAME"; \
@@ -123,7 +110,6 @@ cleanup: venv
 	echo "  NCC_SPOKE_PREFIX:    $$NCC_SPOKE_PREFIX"; \
 	echo "  FRR_ASN:             $$FRR_ASN"; \
 	echo ""; \
-	test -n "$$CLOUD_ROUTER_NAME" || { echo "ERROR: CLOUD_ROUTER_NAME is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
 	test -n "$$NCC_HUB_NAME"      || { echo "ERROR: NCC_HUB_NAME is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
 	test -n "$$NCC_SPOKE_PREFIX"  || { echo "ERROR: NCC_SPOKE_PREFIX is empty. Run 'terraform apply' in $$TF_DIR first." >&2; exit 1; }; \
 	cd "$(CURDIR)"; \

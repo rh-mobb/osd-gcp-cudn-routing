@@ -25,11 +25,12 @@ def build_frr_configuration(
     neighbors = []
     raw_lines = [f"      router bgp {frr_asn}"]
     for cr_ip in topology.interface_ips:
-        # Omit disableMP: deprecated in MetalLB/frr-k8s; defaults match former True.
+        # OVN-K RouteAdvertisements requires disableMP true on neighbors (rejects false).
         neighbors.append(
             {
                 "address": cr_ip,
                 "asn": topology.cloud_router_asn,
+                "disableMP": True,
                 "toReceive": {"allowed": {"mode": "all"}},
             }
         )
