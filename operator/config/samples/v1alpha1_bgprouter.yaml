@@ -1,0 +1,10 @@
+# BGPRouter resources are controller-managed.
+# Do not create these manually; the operator creates one per elected router node.
+apiVersion: routing.osd.redhat.com/v1alpha1
+kind: BGPRouter
+metadata:
+  name: bgprouter-example-node
+spec:
+  nodeName: example-node
+  gceInstance: example-instance
+  gceZone: us-east1-b

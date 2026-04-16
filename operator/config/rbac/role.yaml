@@ -1,0 +1,55 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - frrk8s.metallb.io
+  resources:
+  - frrconfigurations
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - routing.osd.redhat.com
+  resources:
+  - bgprouters
+  - bgproutingconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - routing.osd.redhat.com
+  resources:
+  - bgprouters/status
+  - bgproutingconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - routing.osd.redhat.com
+  resources:
+  - bgproutingconfigs/finalizers
+  verbs:
+  - update

@@ -44,7 +44,7 @@ Everything here should land before any non-lab traffic touches the stack. Change
 
 ### E2E Checkpoint -- Phase 1
 
-> **Run a full e2e test** after completing all of Phase 1 — e.g. **`make create`** (GHCR controller) or **`make dev`** (in-cluster build), then wait until BGP-labeled workers are **Ready** (**`watch 'oc get nodes -l cudn.redhat.com/bgp-router='`**, see **`make post-controller-deploy-msg`**) and run **`make bgp.e2e`**; or **`make bgp.run`**, **`make bgp.deploy-controller`**, **`make bgp.e2e`**; or **`make controller.run`** / **`controller.watch`** instead of deploy-controller), then **`make destroy`** (or **`make bgp.destroy-controller`** and **`make bgp.teardown`**; or **`make controller.cleanup`** only if you keep **`controller_gcp_iam/`**). Skip **`controller.*`** / **`bgp.destroy-controller`** / **`destroy`** only if you are not exercising the controller. This validates that firewall tightening, echo VM changes, and IP reservation haven't broken the data path. If the firewall changes are the only risky items, you can batch 1A-1E into a single test cycle.
+> **Run a full e2e test** after completing all of Phase 1 — e.g. **`make create`** (GHCR operator image) or **`make dev`** (in-cluster build), then wait until BGP-labeled workers are **Ready** (**`watch 'oc get nodes -l routing.osd.redhat.com/bgp-router='`**, see **`make post-operator-deploy-msg`**) and run **`make bgp.e2e`**; or **`make bgp.run`**, **`make bgp.deploy-operator`**, **`make bgp.e2e`**; then **`make destroy`** (or **`make bgp.destroy-operator`** and **`make bgp.teardown`**). This validates that firewall tightening, echo VM changes, and IP reservation haven't broken the data path. If the firewall changes are the only risky items, you can batch 1A-1E into a single test cycle.
 
 ---
 
@@ -52,13 +52,13 @@ Everything here should land before any non-lab traffic touches the stack. Change
 
 These items make the stack survivable on day 2 -- worker replacement procedures, BGP tuning, IAM lockdown. Land them before scaling beyond a small pilot.
 
-### 2A -- Worker lifecycle and controller operations (documented)
+### 2A -- Worker lifecycle and operator operations (documented)
 
-With the [**BGP routing controller**](../controller/python/README.md) owning **NCC spoke**, **BGP peers**, **`canIpForward`**, and **`FRRConfiguration`**, runbooks should describe **controller-first** recovery — not **`terraform apply`** for those objects (Terraform owns **static** infra only).
+With the [**BGP routing operator**](../operator/README.md) owning **NCC spoke**, **BGP peers**, **`canIpForward`**, and **`FRRConfiguration`**, runbooks should describe **operator-first** recovery — not **`terraform apply`** for those objects (Terraform owns **static** infra only).
 
-- [ ] Runbook: **healthy controller** — worker replaced or scaled: what the controller does automatically, how to verify (GCP: spoke + peers + `canIpForward`; cluster: `FRRConfiguration`, BGP session), expected convergence time and blast radius.
-- [ ] Runbook: **controller down / degraded** — safe order to restart **`bgp.deploy-controller`**, check WIF **Secret** and **ConfigMap**, temporary mitigations if the **Deployment** cannot run.
-- [ ] Runbook: **emergency** — remove a node from routing (cordone/drain expectations, whether to scale the **Deployment** to zero before manual GCP edits, documenting when **not** to hand-edit spoke/peer state).
+- [ ] Runbook: **healthy operator** — worker replaced or scaled: what the operator does automatically, how to verify (GCP: spoke + peers + `canIpForward`; cluster: `FRRConfiguration`, BGP session), expected convergence time and blast radius.
+- [ ] Runbook: **operator down / degraded** — safe order to restart **`bgp.deploy-operator`**, check WIF **Secret** and **`BGPRoutingConfig`**, temporary mitigations if the **Deployment** cannot run.
+- [ ] Runbook: **emergency** — remove a node from routing (cordon/drain expectations, whether to scale the **Deployment** to zero or use **`spec.suspended: true`** before manual GCP edits, documenting when **not** to hand-edit spoke/peer state).
 - [ ] Document residual gaps: **`configure-routing.sh`** is still **one-time / CUDN CR** setup (not per-node); new **CUDN CIDRs** need **Terraform + OpenShift** alignment until Phase **3A** (multiple CUDN support) lands.
 
 ### 2B -- BGP session tuning
@@ -163,18 +163,19 @@ These items are for scaling beyond a pilot. They involve larger structural chang
 - [ ] Add `terratest` or similar integration test scaffolding.
 - [ ] Add `shellcheck` linting for all scripts in CI.
 
-### 4F -- Full automation (controller)
+### 4F -- Full automation (operator)
 
 - [x] Design doc: Kubernetes controller watching Node objects, reconciling GCP state (canIpForward, NCC spoke, Cloud Router peers) and OpenShift state (FRRConfiguration CRs).
-- [x] **Quick-win prototype:** Python / kopf controller in [`controller/python/`](../../controller/python/README.md) — watches Nodes with configurable label selector, reconciles all 4 dynamic resources (canIpForward, NCC spoke, Cloud Router peers, FRRConfiguration), debounced event + periodic drift loop, WIF for GCP credentials. Deployment manifests in `deploy/` (kustomize).
-- [x] **Controller owns dynamic resources:** Terraform refactored to only manage static infra (hub, router, interfaces, firewalls). Controller creates NCC spoke on first reconciliation and fully owns spoke instances, BGP peers, canIpForward, and FRRConfiguration CRs. No ownership conflict with Terraform on re-apply.
-- [ ] Validate kopf controller in a live cluster (node replacement, scale-up, scale-down).
-- [ ] **Production:** port reconciliation logic to Go / controller-runtime; add `BGPRoutingConfig` CRD for operator-owned configuration; OLM bundle (`controller/go/`).
-- [ ] Define leader election, error handling, rate limiting, and credential management (kopf prototype uses threading + debounce; Go version uses controller-runtime leader election).
+- [x] **Quick-win prototype:** Python / kopf controller (archived in `archive/controller/python/`).
+- [x] **Go / controller-runtime implementation:** archived in `archive/controller/go/`.
+- [x] **CRD-based operator:** [`operator/`](../operator/README.md) with `BGPRoutingConfig` and `BGPRouter` CRDs under `routing.osd.redhat.com/v1alpha1`. Finalizer-based cleanup, `.status` with conditions, `spec.suspended` for temporary disable.
+- [x] **Operator owns dynamic resources:** Terraform only manages static infra (hub, router, interfaces, firewalls). Operator creates NCC spoke on first reconciliation and fully owns spoke instances, BGP peers, canIpForward, and FRRConfiguration CRs. No ownership conflict with Terraform on re-apply.
+- [ ] Validate operator in a live cluster at scale (node replacement, scale-up, scale-down).
+- [ ] OLM bundle for production deployment.
 
 ### E2E Checkpoint -- Phase 4
 
-> **Run a full e2e test** after each major sub-phase (4A, 4C, and 4F are the biggest). For 4C (multi-zone), include a zone-failure simulation. For 4F (controller), test the full lifecycle: create cluster, replace a worker (trigger Machine API), verify the controller reconciles within SLA without manual intervention.
+> **Run a full e2e test** after each major sub-phase (4A, 4C, and 4F are the biggest). For 4C (multi-zone), include a zone-failure simulation. For 4F (operator), test the full lifecycle: create cluster, replace a worker (trigger Machine API), verify the operator reconciles within SLA without manual intervention.
 
 ---
 

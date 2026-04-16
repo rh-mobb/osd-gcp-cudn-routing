@@ -46,6 +46,7 @@ orchestration_wait_api_tls() {
     sleep "$interval"
   done
   echo "Error: timed out after ${max_sec}s waiting for trusted API TLS (probed: ${url})." >&2
-  echo "  To skip this wait, set OC_LOGIN_EXTRA_ARGS='--insecure-skip-tls-verify'." >&2
+  echo "  Default bgp-apply.sh skips this wait (OC_LOGIN_EXTRA_ARGS defaults to --insecure-skip-tls-verify)." >&2
+  echo "  If you exported OC_LOGIN_EXTRA_ARGS= for strict TLS, increase OC_WAIT_API_TLS_MAX_SEC or fix trust." >&2
   return 1
 }

@@ -1,0 +1,53 @@
+# In-cluster operator: ServiceAccount + ClusterRole + ClusterRoleBinding for bgp-routing-system.
+# ClusterRole rules combine kubebuilder manager-role with leader election and events.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bgp-routing-operator
+  namespace: bgp-routing-system
+  labels:
+    app.kubernetes.io/name: bgp-routing-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bgp-routing-operator
+  labels:
+    app.kubernetes.io/name: bgp-routing-operator
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["frrk8s.metallb.io"]
+    resources: ["frrconfigurations"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["routing.osd.redhat.com"]
+    resources: ["bgprouters", "bgproutingconfigs"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["routing.osd.redhat.com"]
+    resources: ["bgprouters/status", "bgproutingconfigs/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["routing.osd.redhat.com"]
+    resources: ["bgproutingconfigs/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bgp-routing-operator
+  labels:
+    app.kubernetes.io/name: bgp-routing-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: bgp-routing-operator
+subjects:
+  - kind: ServiceAccount
+    name: bgp-routing-operator
+    namespace: bgp-routing-system

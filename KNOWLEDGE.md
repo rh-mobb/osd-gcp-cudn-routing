@@ -78,7 +78,7 @@ Configured via Multus NAD and `spec.liveMigrationConfig.network` on HyperConverg
 - **Cloud Router uses exactly 2 interfaces (HA pair).**
 GCP Router Appliance architecture requires primary + redundant interfaces.
 Each router node peers with both interfaces = 2 BGP sessions per node.
-- **NCC spoke, Cloud Router BGP peers, `canIpForward`, and `FRRConfiguration` CRs are controller-managed, not Terraform.**
+- **NCC spoke, Cloud Router BGP peers, `canIpForward`, and `FRRConfiguration` CRs are operator-managed, not Terraform.**
 Terraform manages only static infrastructure: NCC hub, Cloud Router, interfaces, firewalls.
 This split avoids ownership conflicts on re-apply.
 - **GCP workers use `/32` addresses on `br-ex`.**
@@ -108,8 +108,8 @@ Each router node peers with the 2 endpoints in its own subnet.
 
 ### Cross-Cloud / Architecture
 
-- **The GCP controller selects every worker in the candidate pool** (default: nodes with `node-role.kubernetes.io/worker`, excluding infra).
-Use **`NODE_LABEL_KEY`** / **`NODE_LABEL_VALUE`** to limit which machine pools participate in BGP.
+- **The operator selects every worker in the candidate pool** (default: nodes with `node-role.kubernetes.io/worker`, excluding infra).
+Use the `BGPRoutingConfig` `spec.nodeSelector` fields to limit which machine pools participate in BGP.
 - **AWS reference uses 3 dedicated bare-metal machine pools** (`c5.metal`, one per AZ, `replicas=1`), separate from the default compute pool.
 These are the only BGP peers.
 - **Test pods scheduled on non-router nodes cannot receive traffic from outside the cluster (VMs).**
@@ -122,14 +122,15 @@ Pods/VMs on different CUDNs cannot communicate (PASS in AWS test plan).
 Worker host (`oc debug node`) to CUDN VM is also blocked (PASS).
 Same-CUDN cross-node communication works (PASS).
 
-### Controller / Reconciliation
+### Operator / Reconciliation
 
-- **The GCP controller reconciles in this order:** labels, `canIpForward`, NCC spokes (numbered, ≤8 instances each), Cloud Router BGP peers, FRR CRs.
+- **The operator reconciles in this order:** labels, `canIpForward`, NCC spokes (numbered, ≤8 instances each), Cloud Router BGP peers, FRR CRs.
 Event-driven (Node watch) + periodic drift loop (default 60s).
-- **Cleanup removes Deployment first** (if present) so the in-cluster operator does not race FRR/GCP teardown.
-Then peers, all managed spokes, FRR CRs, and router labels.
+The operator uses CRD-based configuration (`BGPRoutingConfig` and `BGPRouter` under `routing.osd.redhat.com/v1alpha1`) instead of the legacy ConfigMap/env-var surface.
+- **Cleanup uses a finalizer on `BGPRoutingConfig`** — deleting the CR triggers full teardown of peers, NCC spokes, FRR CRs, and router labels. `spec.suspended` provides temporary disable-with-cleanup (preserves config for re-enablement).
 - **`clear_peers` via `RoutersClient.patch()` was a no-op** due to proto3 omitting empty repeated fields.
 Fixed by using `RoutersClient.update()` (PUT) which replaces the full resource.
+- The legacy Go and Python controllers (now archived under `archive/controller/`) implemented the same reconciliation logic; the operator carries it forward with the CRD-driven model.
 
 ---
 
@@ -326,7 +327,7 @@ Confidence it works: **75%** (Layer2 broadcast domain should handle it, but unte
 
 | Source | Type | Key contribution |
 |--------|------|------------------|
-| This repo (`osd-gcp-cudn-routing`) | Code + docs | GCP architecture, controller behavior, Phase 1-5 plan |
+| This repo (`osd-gcp-cudn-routing`) | Code + docs | GCP architecture, operator behavior, Phase 1-5 plan |
 | AWS reference (`references/rosa-bgp`) | Code + docs | 3-node-per-AZ pattern, Route Server peering, test plan results |
 | Internal Slack (BGP working group, March-April 2026) | Discussion | All-nodes-as-peers insight, Aviatrix limitations, FRR route reflector discussion |
 | OVN-K admission validation (live cluster test) | Testing | `PodNetwork` + non-empty `nodeSelector` rejection |

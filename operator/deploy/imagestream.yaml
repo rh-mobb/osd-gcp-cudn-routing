@@ -1,0 +1,7 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: bgp-routing-operator
+  namespace: bgp-routing-system
+  labels:
+    app.kubernetes.io/name: bgp-routing-operator

@@ -22,8 +22,8 @@ WIF_DIR := wif_config
 # Optional flags for wif.undelete-soft-deleted-roles (default: auto from wif_config Terraform + gcloud list --show-deleted).
 # Examples: WIF_UNDELETE_ARGS='--dry-run'  WIF_UNDELETE_ARGS='--from-log ./apply.log'  WIF_UNDELETE_TERRAFORM_DIR=../other/wif
 WIF_UNDELETE_ARGS ?=
-CONTROLLER_DIR := controller/go
-CONTROLLER_GCP_IAM_DIR := controller_gcp_iam
+OPERATOR_DIR := operator
+IAM_DIR := controller_gcp_iam
 MODULES := $(sort $(notdir $(wildcard modules/*/)))
 
 # Optional extra terraform CLI args (e.g. TF_VARS="-var-file=custom.tfvars").
@@ -32,32 +32,35 @@ EXTRA_TF_VARS ?=
 
 .PHONY: help
 help:
-	@echo "OSD GCP CUDN routing — BGP reference stack (Terraform)"
+	@echo "OSD GCP CUDN routing — BGP reference stack (Terraform + Operator)"
 	@echo ""
-	@echo "  (ILB reference stack lives under archive/ — see archive/README.md and archive/scripts/ilb-*.sh.)"
+	@echo "  (ILB reference stack and legacy controllers live under archive/ — see archive/README.md.)"
 	@echo ""
-	@echo "  create        bgp.run + bgp.deploy-controller (GHCR image); prints oc get nodes … + make bgp.e2e reminder (does not run e2e)"
-	@echo "  dev           bgp.run + in-cluster binary build; same reminder as create (does not run e2e)"
-	@echo "  post-controller-deploy-msg  print watch oc get nodes (BGP label, Ready) / make bgp.e2e (after deploy-controller)"
-	@echo "  destroy       bgp.destroy-controller + bgp.teardown (full stack teardown; all terraform destroy steps use -auto-approve)"
+	@echo "  create        bgp.run + bgp.deploy-operator (GHCR image); prints oc get nodes … + make bgp.e2e reminder (does not run e2e)"
+	@echo "  dev           bgp.run + in-cluster operator build; same reminder as create (does not run e2e)"
+	@echo "  destroy       bgp.destroy-operator + bgp.teardown (full stack teardown; all terraform destroy steps use -auto-approve)"
 	@echo ""
 	@echo "  bgp.run       full deploy: WIF, cluster single apply (BGP+NCC+echo VM), oc login, cluster_bgp_routing configure-routing.sh"
-	@echo "  bgp.teardown  terraform destroy $(CLUSTER_BGP_DIR)/ then $(WIF_DIR)/ (-auto-approve); run bgp.destroy-controller first if you used the in-cluster controller"
+	@echo "  bgp.teardown  terraform destroy $(CLUSTER_BGP_DIR)/ then $(WIF_DIR)/ (-auto-approve); run bgp.destroy-operator first if you used the in-cluster operator"
 	@echo "  bgp.e2e       CUDN pod ↔ echo VM checks ($(CLUSTER_BGP_DIR)/; requires oc + gcloud logged in)"
 	@echo "  bgp.phase1-baseline  fix-bgp-ra Phase 1: router nodes, RA nodeSelector, FRR CRs, debug-gcp-bgp (oc + terraform + gcloud)"
-	@echo "  bgp.deploy-controller  After bgp.run: IAM + WIF Secret + ConfigMap from TF + (build or prebuilt image) + rollout"
-	@echo "  bgp.destroy-controller  controller.cleanup then controller_gcp_iam terraform destroy -auto-approve (before bgp.teardown)"
+	@echo "  bgp.deploy-operator    After bgp.run: IAM + WIF Secret + CRDs + RBAC + BGPRoutingConfig + operator build/rollout"
+	@echo "  bgp.destroy-operator   Delete BGPRoutingConfig (finalizer cleanup), operator resources, CRDs, then IAM terraform destroy"
 	@echo ""
-	@echo "  controller.venv      (Python only) Create venv under controller/python/"
-	@echo "  controller.run       One-shot reconciliation (reads terraform output; Go controller)"
-	@echo "  controller.watch     Run the long-lived controller (Go / controller-runtime)"
-	@echo "  controller.test      go test ./... under controller/go"
-	@echo "  controller.cleanup   Delete controller Deployment (if any), peers, NCC spokes, FRR, router labels (no-op with warning if cluster Terraform has no outputs)"
-	@echo "  controller.build     Compile the Go controller binary (go build under $(CONTROLLER_DIR)/)"
-	@echo "  controller.docker-build  Build the controller container image (podman; $(CONTROLLER_DIR)/Dockerfile)"
-	@echo "  controller.deploy-openshift  Apply deploy/ + BuildConfig binary build + rollout"
-	@echo "  controller.gcp-iam.* Terraform in $(CONTROLLER_GCP_IAM_DIR)/ (GCP SA + WIF bind; after WIF + cluster)"
-	@echo "  controller.gcp-credentials  Generate credential-config.json (+ optional Secret via env)"
+	@echo "  virt.deploy            Hyperdisk pool + StorageClass + VolumeSnapshotClass, then OpenShift Virtualization (CNV)"
+	@echo "  virt.destroy-storage   PVCs/snapshots/CDI cleanup, then SC/VSC + standard-csi default; GCP disks in pool + Hyperdisk pools (all Terraform zones)"
+	@echo ""
+	@echo "  operator.build         Compile the operator binary (go build under $(OPERATOR_DIR)/)"
+	@echo "  operator.test          go test ./... under $(OPERATOR_DIR)/"
+	@echo "  operator.generate      Run controller-gen (deepcopy, etc.)"
+	@echo "  operator.manifests     Generate CRD, RBAC, and webhook manifests"
+	@echo "  operator.docker-build  Build the operator container image (podman/docker)"
+	@echo ""
+	@echo "  iam.init      terraform init -upgrade in $(IAM_DIR)/"
+	@echo "  iam.plan      terraform plan in $(IAM_DIR)/"
+	@echo "  iam.apply     terraform apply in $(IAM_DIR)/"
+	@echo "  iam.destroy   terraform destroy -auto-approve in $(IAM_DIR)/"
+	@echo "  iam.credentials  Generate credential-config.json (+ optional Secret via env)"
 	@echo ""
 	@echo "  wif.init      terraform init -upgrade in $(WIF_DIR)/"
 	@echo "  wif.plan      terraform plan in $(WIF_DIR)/"
@@ -68,46 +71,45 @@ help:
 	@echo "  init          terraform init -upgrade in $(CLUSTER_BGP_DIR)/ (same root as bgp.init)"
 	@echo "  plan          terraform plan in $(CLUSTER_BGP_DIR)/"
 	@echo "  apply         terraform apply in $(CLUSTER_BGP_DIR)/"
-	@echo "  cluster.destroy  terraform destroy -auto-approve in $(CLUSTER_BGP_DIR)/ only (expert; not WIF / controller IAM)"
+	@echo "  cluster.destroy  terraform destroy -auto-approve in $(CLUSTER_BGP_DIR)/ only (expert; not WIF / IAM)"
 	@echo "  bgp.init      terraform init -upgrade in $(CLUSTER_BGP_DIR)/"
 	@echo "  bgp.plan      terraform plan in $(CLUSTER_BGP_DIR)/"
 	@echo "  bgp.apply     terraform apply in $(CLUSTER_BGP_DIR)/"
 	@echo "  fmt           terraform fmt -recursive"
-	@echo "  validate      terraform validate ($(WIF_DIR)/, modules, $(CLUSTER_BGP_DIR)/, $(CONTROLLER_GCP_IAM_DIR)/)"
+	@echo "  validate      terraform validate ($(WIF_DIR)/, modules, $(CLUSTER_BGP_DIR)/, $(IAM_DIR)/)"
 	@echo "  clean         remove .terraform/ and lock files under repo"
 	@echo ""
 	@echo "WIF uses osd-wif-config from terraform-provider-osd-google (Git module source)."
 	@echo "Provider rh-mobb/osd-google ~> 0.1.3 from Terraform Registry (no dev_overrides)."
 	@echo "See README.md for prerequisites and workflow; scripts/README.md for bgp.run env vars."
-	@echo "Naming: stack.action with dots; multi-word segments use hyphens (e.g. controller.gcp-iam.init)."
+	@echo "Naming: stack.action with dots; multi-word segments use hyphens (e.g. iam.init)."
 
-CREATE_CONTROLLER_IMAGE ?= ghcr.io/rh-mobb/osd-gcp-cudn-routing/bgp-controller-go:latest
-# Namespace for in-cluster controller (match BGP_CONTROLLER_NAMESPACE in bgp-deploy-controller-incluster.sh).
-BGP_CONTROLLER_NAMESPACE ?= bgp-routing-system
+CREATE_OPERATOR_IMAGE ?= ghcr.io/rh-mobb/osd-gcp-cudn-routing/bgp-routing-operator:latest
+BGP_OPERATOR_NAMESPACE ?= bgp-routing-system
 
-.PHONY: create dev post-controller-deploy-msg destroy bgp.run bgp.teardown bgp.e2e bgp.phase1-baseline bgp.deploy-controller bgp.destroy-controller
-post-controller-deploy-msg:
+.PHONY: create dev destroy post-operator-deploy-msg bgp.run bgp.teardown bgp.e2e bgp.phase1-baseline bgp.deploy-operator bgp.destroy-operator
+post-operator-deploy-msg:
 	@echo ""
-	@echo "=== Controller deployed ($(BGP_CONTROLLER_NAMESPACE)/deployment/bgp-routing-controller) ==="
+	@echo "=== Operator deployed ($(BGP_OPERATOR_NAMESPACE)/deployment/bgp-routing-operator) ==="
 	@echo "Watch nodes with the BGP router label until every listed node has STATUS Ready (expected worker count), then run connectivity checks:"
-	@echo "  watch 'oc get nodes -l cudn.redhat.com/bgp-router='"
+	@echo "  watch 'oc get nodes -l routing.osd.redhat.com/bgp-router='"
 	@echo "  (Ctrl+C to stop watch.)"
 	@echo "  make bgp.e2e"
 
 create:
 	@$(MAKE) bgp.run
-	@$(MAKE) bgp.deploy-controller BGP_CONTROLLER_PREBUILT_IMAGE="$(CREATE_CONTROLLER_IMAGE)"
-	@$(MAKE) post-controller-deploy-msg
+	@$(MAKE) bgp.deploy-operator BGP_OPERATOR_PREBUILT_IMAGE="$(CREATE_OPERATOR_IMAGE)"
+	@$(MAKE) post-operator-deploy-msg
 
 dev:
 	@$(MAKE) bgp.run
-	@$(MAKE) bgp.deploy-controller
-	@$(MAKE) post-controller-deploy-msg
+	@$(MAKE) bgp.deploy-operator
+	@$(MAKE) post-operator-deploy-msg
 
 destroy:
 	@echo "=== make destroy: full stack teardown ==="
-	@echo ">>> Phase 1/2: bgp.destroy-controller (in-cluster cleanup + controller_gcp_iam/)"
-	@$(MAKE) bgp.destroy-controller
+	@echo ">>> Phase 1/2: bgp.destroy-operator (in-cluster cleanup + $(IAM_DIR)/)"
+	@$(MAKE) bgp.destroy-operator
 	@echo ""
 	@echo ">>> Phase 2/2: bgp.teardown (cluster_bgp_routing/ then wif_config/)"
 	@$(MAKE) bgp.teardown
@@ -127,18 +129,33 @@ bgp.e2e:
 bgp.phase1-baseline:
 	@bash "$(CURDIR)/scripts/bgp-phase1-baseline.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)"
 
-bgp.deploy-controller:
-	@bash "$(CURDIR)/scripts/bgp-deploy-controller-incluster.sh" $(TF_VARS) $(EXTRA_TF_VARS)
+bgp.deploy-operator:
+	@bash "$(CURDIR)/scripts/bgp-deploy-operator-incluster.sh" $(TF_VARS) $(EXTRA_TF_VARS)
 
-bgp.destroy-controller:
-	@echo "=== bgp.destroy-controller ==="
-	@echo ">>> Step 1/2: controller.cleanup (OpenShift + GCP resources managed by the controller)"
-	@$(MAKE) controller.cleanup
+bgp.destroy-operator:
+	@echo "=== bgp.destroy-operator ==="
+	@echo ">>> Step 1/4: Delete BGPRoutingConfig (triggers finalizer cleanup)"
+	-@oc delete bgproutingconfig cluster --ignore-not-found=true --timeout=120s 2>/dev/null || true
 	@echo ""
-	@echo ">>> Step 2/2: controller.gcp-iam.destroy (Terraform in $(CONTROLLER_GCP_IAM_DIR)/)"
-	@$(MAKE) controller.gcp-iam.destroy
+	@echo ">>> Step 2/4: Delete operator Deployment, RBAC, namespace resources"
+	-@oc delete -f "$(CURDIR)/$(OPERATOR_DIR)/deploy/deployment.yaml" --ignore-not-found=true 2>/dev/null || true
+	-@oc delete -f "$(CURDIR)/$(OPERATOR_DIR)/deploy/rbac.yaml" --ignore-not-found=true 2>/dev/null || true
 	@echo ""
-	@echo "=== bgp.destroy-controller: finished ==="
+	@echo ">>> Step 3/4: Delete CRDs"
+	-@oc delete -f "$(CURDIR)/$(OPERATOR_DIR)/config/crd/bases/" --ignore-not-found=true 2>/dev/null || true
+	@echo ""
+	@echo ">>> Step 4/4: iam.destroy (Terraform in $(IAM_DIR)/)"
+	@$(MAKE) iam.destroy
+	@echo ""
+	@echo "=== bgp.destroy-operator: finished ==="
+
+# ---- OpenShift Virtualization + RWX storage ----
+.PHONY: virt.deploy virt.destroy-storage
+virt.deploy:
+	@bash "$(CURDIR)/scripts/deploy-openshift-virt.sh"
+
+virt.destroy-storage:
+	@bash "$(CURDIR)/scripts/destroy-openshift-virt-storage.sh"
 
 .PHONY: wif.init wif.plan wif.apply wif.destroy wif.undelete-soft-deleted-roles
 wif.init:
@@ -182,48 +199,41 @@ bgp.plan: bgp.init
 bgp.apply: bgp.init
 	@cd $(CLUSTER_BGP_DIR) && terraform apply $(TF_VARS) $(EXTRA_TF_VARS)
 
-.PHONY: controller.venv controller.run controller.watch controller.test controller.cleanup controller.build controller.docker-build controller.deploy-openshift
-controller.venv:
-	@$(MAKE) -C controller/python venv
+# ---- Operator (CRD-based) targets ----
+.PHONY: operator.build operator.test operator.generate operator.manifests operator.docker-build
+operator.build:
+	@$(MAKE) -C $(OPERATOR_DIR) build
 
-controller.run:
-	@$(MAKE) -C $(CONTROLLER_DIR) run
+operator.test:
+	@$(MAKE) -C $(OPERATOR_DIR) test
 
-controller.watch:
-	@$(MAKE) -C $(CONTROLLER_DIR) watch
+operator.generate:
+	@$(MAKE) -C $(OPERATOR_DIR) generate
 
-controller.test:
-	@$(MAKE) -C $(CONTROLLER_DIR) test
+operator.manifests:
+	@$(MAKE) -C $(OPERATOR_DIR) manifests
 
-controller.cleanup:
-	@echo ">>> controller.cleanup: $(CONTROLLER_DIR) (go run ... --cleanup)"
-	@$(MAKE) -C $(CONTROLLER_DIR) cleanup
+OPERATOR_IMG ?= ghcr.io/rh-mobb/osd-gcp-cudn-routing/bgp-routing-operator:latest
+operator.docker-build:
+	@$(MAKE) -C $(OPERATOR_DIR) docker-build IMG=$(OPERATOR_IMG)
 
-controller.build:
-	@$(MAKE) -C $(CONTROLLER_DIR) build
+# ---- IAM (GCP SA + WIF for the operator) ----
+.PHONY: iam.init iam.plan iam.apply iam.destroy iam.credentials
+iam.init:
+	@cd $(IAM_DIR) && terraform init -upgrade
 
-controller.docker-build:
-	@$(MAKE) -C $(CONTROLLER_DIR) docker-build
+iam.plan: iam.init
+	@cd $(IAM_DIR) && terraform plan $(TF_VARS) $(EXTRA_TF_VARS)
 
-controller.deploy-openshift:
-	@$(MAKE) -C $(CONTROLLER_DIR) deploy-openshift
+iam.apply: iam.init
+	@cd $(IAM_DIR) && terraform apply $(TF_VARS) $(EXTRA_TF_VARS)
 
-.PHONY: controller.gcp-iam.init controller.gcp-iam.plan controller.gcp-iam.apply controller.gcp-iam.destroy controller.gcp-credentials
-controller.gcp-iam.init:
-	@cd $(CONTROLLER_GCP_IAM_DIR) && terraform init -upgrade
+iam.destroy: iam.init
+	@echo ">>> iam.destroy: terraform destroy in $(IAM_DIR)/"
+	@cd $(IAM_DIR) && terraform destroy -auto-approve $(TF_VARS) $(EXTRA_TF_VARS)
 
-controller.gcp-iam.plan: controller.gcp-iam.init
-	@cd $(CONTROLLER_GCP_IAM_DIR) && terraform plan $(TF_VARS) $(EXTRA_TF_VARS)
-
-controller.gcp-iam.apply: controller.gcp-iam.init
-	@cd $(CONTROLLER_GCP_IAM_DIR) && terraform apply $(TF_VARS) $(EXTRA_TF_VARS)
-
-controller.gcp-iam.destroy: controller.gcp-iam.init
-	@echo ">>> controller.gcp-iam.destroy: terraform destroy in $(CONTROLLER_GCP_IAM_DIR)/"
-	@cd $(CONTROLLER_GCP_IAM_DIR) && terraform destroy -auto-approve $(TF_VARS) $(EXTRA_TF_VARS)
-
-controller.gcp-credentials:
-	@CONTROLLER_GCP_IAM_DIR="$(CURDIR)/$(CONTROLLER_GCP_IAM_DIR)" \
+iam.credentials:
+	@CONTROLLER_GCP_IAM_DIR="$(CURDIR)/$(IAM_DIR)" \
 		bash "$(CURDIR)/scripts/bgp-controller-gcp-credentials.sh"
 
 .PHONY: fmt
@@ -241,13 +251,13 @@ validate:
 	done
 	@echo "Validating $(CLUSTER_BGP_DIR)..."
 	@cd $(CLUSTER_BGP_DIR) && terraform init -backend=false -input=false -upgrade && terraform validate
-	@echo "Validating $(CONTROLLER_GCP_IAM_DIR)..."
-	@cd $(CONTROLLER_GCP_IAM_DIR) && terraform init -backend=false -input=false -upgrade && terraform validate
+	@echo "Validating $(IAM_DIR)..."
+	@cd $(IAM_DIR) && terraform init -backend=false -input=false -upgrade && terraform validate
 
 .PHONY: clean
 clean:
 	@rm -rf $(WIF_DIR)/.terraform $(WIF_DIR)/.terraform.lock.hcl
 	@rm -rf $(ARCHIVE_ILB_DIR)/.terraform $(ARCHIVE_ILB_DIR)/.terraform.lock.hcl
 	@rm -rf $(CLUSTER_BGP_DIR)/.terraform $(CLUSTER_BGP_DIR)/.terraform.lock.hcl
-	@rm -rf $(CONTROLLER_GCP_IAM_DIR)/.terraform $(CONTROLLER_GCP_IAM_DIR)/.terraform.lock.hcl
+	@rm -rf $(IAM_DIR)/.terraform $(IAM_DIR)/.terraform.lock.hcl
 	@for mod in $(MODULES); do rm -rf modules/$$mod/.terraform modules/$$mod/.terraform.lock.hcl; done

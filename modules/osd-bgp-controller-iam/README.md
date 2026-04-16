@@ -1,6 +1,6 @@
 # `osd-bgp-controller-iam`
 
-Terraform module: **GCP least-privilege IAM** for the [BGP routing controller](../../controller/go/README.md).
+Terraform module: **GCP least-privilege IAM** for the [BGP routing operator](../../operator/README.md).
 
 Creates:
 
@@ -15,7 +15,7 @@ This module is invoked from the root stack [`controller_gcp_iam/`](../../control
 
 ## Inputs
 
-See [`variables.tf`](variables.tf). Defaults match [`deploy/rbac.yaml`](../../controller/go/deploy/rbac.yaml) (`bgp-routing-system` / `bgp-routing-controller`).
+See [`variables.tf`](variables.tf). Defaults match `bgp-routing-system` / `bgp-routing-operator` (see [`operator/deploy/rbac.yaml`](../../operator/deploy/rbac.yaml)).
 
 ## Outputs
 

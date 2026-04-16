@@ -1,4 +1,4 @@
-name: Publish controller images
+name: Publish operator image
 
 on:
   push:
@@ -11,22 +11,12 @@ permissions:
   packages: write
 
 concurrency:
-  group: publish-controller-images-${{ github.ref }}
+  group: publish-operator-image-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: go
-            context: controller/go
-            file: controller/go/Dockerfile
-          - name: python
-            context: controller/python
-            file: controller/python/Dockerfile
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,7 +41,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ steps.image_base.outputs.repository_lc }}/bgp-controller-${{ matrix.name }}
+          images: ghcr.io/${{ steps.image_base.outputs.repository_lc }}/bgp-routing-operator
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
@@ -60,8 +50,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.file }}
+          context: operator
+          file: operator/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

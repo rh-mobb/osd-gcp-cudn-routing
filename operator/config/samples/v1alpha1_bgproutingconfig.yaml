@@ -1,0 +1,21 @@
+apiVersion: routing.osd.redhat.com/v1alpha1
+kind: BGPRoutingConfig
+metadata:
+  name: cluster
+spec:
+  gcpProject: my-gcp-project
+  cloudRouter:
+    name: my-cloud-router
+    region: us-east1
+  ncc:
+    hubName: my-ncc-hub
+    spokePrefix: my-spoke
+  clusterName: my-osd-cluster
+  suspended: false
+  frr:
+    asn: 65003
+    namespace: openshift-frr-k8s
+  gce:
+    enableNestedVirtualization: true
+  reconcileIntervalSeconds: 60
+  debounceSeconds: 5

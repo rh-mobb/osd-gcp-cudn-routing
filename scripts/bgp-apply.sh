@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end BGP+CUDN deployment: WIF, cluster apply, oc login, configure-routing.sh.
 # Dynamic resources (NCC spoke, BGP peers, canIpForward, FRRConfiguration) are managed
-# by the controller (controller/go/) — Terraform only creates static infra.
+# by the operator (operator/) — Terraform only creates static infra.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,7 +10,12 @@ CLUSTER_DIR="${ROOT}/cluster_bgp_routing"
 # shellcheck source=orchestration-lib.sh
 source "${ROOT}/scripts/orchestration-lib.sh"
 
-OC_LOGIN_EXTRA_ARGS="${OC_LOGIN_EXTRA_ARGS:-}"
+# Default: skip the long "wait for public CA" loop and non-interactive oc login against
+# bootstrap/self-signed API certs. To require system-trusted TLS first, export an empty
+# value: OC_LOGIN_EXTRA_ARGS= (must be set in the environment, not merely unset).
+if [[ -z "${OC_LOGIN_EXTRA_ARGS+x}" ]]; then
+  OC_LOGIN_EXTRA_ARGS='--insecure-skip-tls-verify'
+fi
 
 for cmd in terraform oc curl; do
   command -v "$cmd" >/dev/null 2>&1 || {
@@ -55,7 +60,6 @@ cd "$CLUSTER_DIR"
   --cluster "$(terraform output -raw cluster_name)"
 
 echo "=== bgp-apply complete ==="
-echo "Next (fully automated in-cluster controller):"
-echo "  make bgp.deploy-controller"
+echo "Next (deploy the operator in-cluster):"
+echo "  make bgp.deploy-operator"
 echo "  make bgp.e2e"
-echo "Workstation controller instead: make controller.run (see controller/go/README.md); Python venv: make controller.venv"

@@ -1,0 +1,22 @@
+# Binary Docker build: run from operator/ after apply:
+#   oc start-build bgp-routing-operator -n bgp-routing-system --from-dir="$PWD" --follow
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: bgp-routing-operator
+  namespace: bgp-routing-system
+  labels:
+    app.kubernetes.io/name: bgp-routing-operator
+spec:
+  source:
+    type: Binary
+    binary: {}
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: bgp-routing-operator:latest
+  triggers: []

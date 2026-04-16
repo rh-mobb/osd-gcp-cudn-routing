@@ -40,7 +40,7 @@ The AWS reference uses `c5.metal` instances (bare-metal on AWS), which happens t
 ## Solution Overview
 
 BGP advertises the CUDN prefix from worker nodes into the GCP VPC via NCC Router Appliance and Cloud Router.
-Every worker in the **candidate pool** (see `NODE_LABEL_KEY` / `NODE_LABEL_VALUE`, excluding infra) participates in BGP so it can:
+Every worker in the **candidate pool** (see `spec.nodeSelector` in `BGPRoutingConfig`, excluding infra) participates in BGP so it can:
 
 - **Receive** inbound traffic directly (VPC route points to it as a valid next-hop).
 - **Send** outbound traffic from CUDN pods using learned routes to VPC destinations.
@@ -83,13 +83,13 @@ The earlier design selected a small subset of "router nodes" and assumed OVN ove
 Testing and cross-team collaboration revealed this does not work:
 
 - **Outbound**: FRR runs on **all** nodes (the FRR-K8s daemon is deployed cluster-wide when enabled), and OVN-K generates FRRConfiguration CRs on every node to advertise the CUDN prefix.
-However, workers **without** a controller-managed Cloud Router neighbor have **no learned VPC routes** — the FRRConfiguration CRs (which add Cloud Router as a BGP peer with `toReceive.allowed.mode: all`) must exist on every node that hosts CUDN workloads.
+However, workers **without** an operator-managed Cloud Router neighbor have **no learned VPC routes** — the FRRConfiguration CRs (which add Cloud Router as a BGP peer with `toReceive.allowed.mode: all`) must exist on every node that hosts CUDN workloads.
 Without an external BGP neighbor, that node cannot learn VPC routes, and CUDN egress traffic has no path out.
 - **Inbound**: with ECMP (confirmed), inbound traffic from the VPC is distributed across all peered workers.
 A packet may arrive at a worker that does not host the target pod, requiring OVN overlay forwarding to the correct node.
 Whether this overlay forwarding works reliably for CUDN traffic has not been conclusively tested.
 
-The fix is straightforward: **every worker node that can host CUDN pods gets a controller-managed FRRConfiguration CR** that adds Cloud Router as a BGP neighbor.
+The fix is straightforward: **every worker node that can host CUDN pods gets an operator-managed FRRConfiguration CR** that adds Cloud Router as a BGP neighbor.
 Each node then advertises the CUDN prefix to Cloud Router and learns VPC routes, enabling both inbound and outbound traffic.
 This matches the approach validated on AWS (all dedicated router nodes are peers) and eliminates the scheduling dependency.
 
@@ -111,9 +111,9 @@ Created once by `terraform apply` in `cluster_bgp_routing/`.
 | **Firewall: bgp-worker-subnet** | Allows TCP/179 between Cloud Router IPs and workers |
 | **Echo VM** (optional) | Test VM on the worker subnet for e2e validation |
 
-### GCP Infrastructure (Controller — dynamic)
+### GCP Infrastructure (Operator — dynamic)
 
-Managed by the BGP routing controller on every reconciliation cycle.
+Managed by the BGP routing operator on every reconciliation cycle.
 
 | Resource | Purpose |
 |----------|---------|
@@ -132,19 +132,21 @@ Applied by `configure-routing.sh` after cluster creation.
 | **ClusterUserDefinedNetwork** | Layer2 topology, `10.100.0.0/16`, `ipam.lifecycle: Persistent`, label `advertise: "true"` |
 | **RouteAdvertisements** | `nodeSelector: {}` (required with `PodNetwork`), `frrConfigurationSelector: {}`, selects CUDNs labeled `advertise: "true"` |
 
-### OpenShift / Kubernetes (controller-managed)
+### OpenShift / Kubernetes (operator-managed)
 
 | Resource | Purpose |
 |----------|---------|
+| **`BGPRoutingConfig` CR** | Singleton (`cluster`); declarative spec for all routing config; `.status` reports aggregated reconciliation state |
+| **`BGPRouter` CRs** | One per elected router node; operator-managed status objects showing per-node GCP/FRR health |
 | **`FRRConfiguration` CRs** | One per worker node; targets single node via `kubernetes.io/hostname`; 2 Cloud Router neighbors with `disable-connected-check` in `spec.raw` |
-| **Node label** `cudn.redhat.com/bgp-router` (default **`ROUTER_LABEL_KEY`**) | Applied to all candidate workers for **`oc get -l`** / affinity if you add it elsewhere |
-| **Node annotations** `cudn.redhat.com/gcp-can-ip-forward`, `cudn.redhat.com/gcp-nested-virtualization` | Set after successful GCE **`canIpForward`** / nested virt reconcile; removed with the router label on cleanup or when nested virt is disabled |
+| **Node label** `routing.osd.redhat.com/bgp-router` | Applied to all candidate workers for **`oc get -l`** / affinity if you add it elsewhere |
+| **Node annotations** `routing.osd.redhat.com/gcp-can-ip-forward`, `routing.osd.redhat.com/gcp-nested-virtualization` | Set after successful GCE **`canIpForward`** / nested virt reconcile; removed with the router label on cleanup or when nested virt is disabled |
 
 ### OVN-K Generated (automatic)
 
 | Resource | Purpose |
 |----------|---------|
-| **`ovnk-generated-*` FRRConfiguration CRs** | Created by OVN-K on every node because `RouteAdvertisements` uses `nodeSelector: {}`; merged with controller CRs by MetalLB admission |
+| **`ovnk-generated-*` FRRConfiguration CRs** | Created by OVN-K on every node because `RouteAdvertisements` uses `nodeSelector: {}`; merged with operator CRs by MetalLB admission |
 | **Conditional SNAT** | OVN applies SNAT only for cluster-internal destinations; CUDN egress preserves pod IP |
 
 ---
@@ -198,7 +200,7 @@ VPC Host (10.0.x.x)
 
 The transition from the OVN Layer2 network to the host routing table is the critical step.
 Without a Cloud Router BGP neighbor, FRR on the node has no routes to install — the host routing table has no path for CUDN egress traffic, and the packet is dropped.
-This is the primary reason every CUDN-capable worker must have a controller-managed FRRConfiguration CR adding Cloud Router as a neighbor.
+This is the primary reason every CUDN-capable worker must have an operator-managed FRRConfiguration CR adding Cloud Router as a neighbor.
 
 > **Open question**: whether the exact forwarding mechanism uses `routingViaHost` or VRF-lite is not yet confirmed for our non-VRF Layer2 topology.
 > See [KNOWLEDGE.md § Open Questions](KNOWLEDGE.md#open-questions--updated).
@@ -227,8 +229,8 @@ Worker host processes (`oc debug node`) also cannot reach CUDN pod IPs.
 
 ### Reconciliation Loop
 
-The BGP routing controller runs as a Deployment in the `bgp-routing-system` namespace.
-It watches Node events and runs periodic drift correction (default 60s).
+The BGP routing operator runs as a Deployment in the `bgp-routing-system` namespace.
+It watches `BGPRoutingConfig` and Node events and runs periodic drift correction (default 60s).
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
@@ -243,12 +245,12 @@ It watches Node events and runs periodic drift correction (default 60s).
 │     - Sorted by GCE instance name (deterministic)        │
 │                                                          │
 │  3. Sync labels                                          │
-│     - Apply cudn.redhat.com/bgp-router (default key)     │
+│     - Apply routing.osd.redhat.com/bgp-router            │
 │     - Remove from nodes no longer in the candidate pool  │
 │                                                          │
 │  4. Enable canIpForward                                  │
 │     - GCE API: set canIpForward=true on each instance    │
-│     - Annotate node: cudn.redhat.com/gcp-can-ip-forward    │
+│     - Annotate node: routing.osd.redhat.com/gcp-can-ip-forward │
 │                                                          │
 │  5. Reconcile NCC spokes                                 │
 │     - Shard workers into chunks of ≤8 per spoke (GCP)    │
@@ -265,18 +267,25 @@ It watches Node events and runs periodic drift correction (default 60s).
 │     - 2 neighbors (Cloud Router interface IPs)           │
 │     - spec.raw: disable-connected-check per neighbor     │
 │     - Delete stale CRs for removed nodes                 │
+│                                                          │
+│  8. Update BGPRouter status objects                      │
+│     - One BGPRouter CR per elected router node           │
+│     - Per-node conditions: CanIPForwardReady, etc.       │
 └──────────────────────────────────────────────────────────┘
 ```
 
-### Cleanup (reverse)
+### Cleanup
 
-`make controller.cleanup` performs teardown in reverse order:
+The operator uses a **finalizer** on the `BGPRoutingConfig` CR. Deleting the CR triggers cleanup in reverse order:
 
-1. Delete the controller Deployment (prevents races).
-2. Remove router labels (**`ROUTER_LABEL_KEY`**, default **`cudn.redhat.com/bgp-router`**) and controller GCP annotations from all nodes that had the label.
-3. Delete all controller-managed `FRRConfiguration` CRs.
-4. Clear Cloud Router BGP peers (full resource PUT, not patch).
-5. Delete all NCC spokes matching `{NCC_SPOKE_PREFIX}-<number>`.
+1. Remove router labels (**`routing.osd.redhat.com/bgp-router`**) and operator GCP annotations from all nodes that had the label.
+2. Delete all operator-managed `FRRConfiguration` CRs.
+3. Clear Cloud Router BGP peers (full resource PUT, not patch).
+4. Delete all NCC spokes matching `{NCC_SPOKE_PREFIX}-<number>`.
+5. Delete `BGPRouter` status objects.
+6. Remove finalizer, allowing the CR to be garbage collected.
+
+**`spec.suspended: true`** provides temporary disable-with-cleanup (preserves config for re-enablement).
 
 ### Event-Driven + Periodic
 
@@ -328,7 +337,7 @@ This is a system limit and cannot be increased.
 
 A single NCC hub can host multiple spokes.
 The number of router appliance spokes per project per region is a project quota (adjustable), not a hard limit.
-The controller **shards** workers across numbered spokes and removes stale spokes when the cluster shrinks.
+The operator **shards** workers across numbered spokes and removes stale spokes when the cluster shrinks.
 
 ### Firewalls
 
@@ -357,11 +366,11 @@ FRR-K8s shares its deployment with MetalLB if both are enabled.
 
 ### FRRConfiguration Per Node
 
-The controller creates one `FRRConfiguration` per worker:
+The operator creates one `FRRConfiguration` per worker:
 
 - **Name**: `bgp-{instance-name}` (sanitized, max 50 chars).
 - **`nodeSelector`**: `kubernetes.io/hostname: {node-name}` (single-node targeting).
-- **Neighbors**: both Cloud Router interface IPs, with `toReceive.allowed.mode: all` and **`disableMP: true`**. MetalLB/frr-k8s may warn that the field is deprecated, but **OVN-K `RouteAdvertisements`** rejects neighbors when **`DisableMP`** is false or omitted (serialized false), with **`Not Accepted: DisableMP==false not supported`** — so the controller must set **`true`** for CUDN prefix merge and GCP learned routes.
+- **Neighbors**: both Cloud Router interface IPs, with `toReceive.allowed.mode: all` and **`disableMP: true`**. MetalLB/frr-k8s may warn that the field is deprecated, but **OVN-K `RouteAdvertisements`** rejects neighbors when **`DisableMP`** is false or omitted (serialized false), with **`Not Accepted: DisableMP==false not supported`** — so the operator must set **`true`** for CUDN prefix merge and GCP learned routes.
 - **`spec.raw`**: `neighbor {cr-ip} disable-connected-check` for each neighbor (required because GCP workers use `/32` on `br-ex`).
 
 ### RouteAdvertisements
@@ -388,7 +397,7 @@ spec:
 - **`frrConfigurationSelector: {}`** matches all FRR configs (controller-managed and OVN-K generated).
 - Only CUDNs labeled `advertise: "true"` are selected.
 - OVN-K generates one `FRRConfiguration` per network and per node from this CR with appropriate advertised prefixes.
-- **Receive-side route filtering is NOT applied** in OVN-K generated CRs — configure `toReceive` on the controller's `FRRConfiguration` CRs instead.
+- **Receive-side route filtering is NOT applied** in OVN-K generated CRs — configure `toReceive` on the operator's `FRRConfiguration` CRs instead.
 
 ### CUDN Configuration
 
@@ -420,7 +429,7 @@ When the workload is a KubeVirt VM rather than a pod:
 A worker without a Cloud Router BGP session cannot route CUDN egress traffic to VPC destinations.
 The "router node subset" model only works if CUDN pods are guaranteed to land on router nodes (via scheduling constraints), which adds operational complexity.
 
-**Implementation**: the reconciler uses **all** discovered candidates; optional narrowing uses **`NODE_LABEL_KEY`** / **`NODE_LABEL_VALUE`** so cluster admins can limit which machine pools participate (for example, bare-metal-only BGP while other workers run non-CUDN workloads).
+**Implementation**: the reconciler uses **all** discovered candidates; optional narrowing uses **`spec.nodeSelector.labelKey`** / **`spec.nodeSelector.labelValue`** in the `BGPRoutingConfig` CR so cluster admins can limit which machine pools participate (for example, bare-metal-only BGP while other workers run non-CUDN workloads).
 
 **Trade-off**: more GCP API calls per reconciliation cycle, more Cloud Router peers.
 BGP overhead is minimal for the expected cluster sizes (6-20 workers = 12-40 peers).
@@ -436,13 +445,13 @@ GCP-specific `spec.raw` (disable-connected-check) is the same for all nodes, but
 **Alternative considered**: single CR with `nodeSelector` matching a label (AWS reference pattern).
 This is simpler but provides less granular control over the CR lifecycle.
 
-### Controller-managed dynamic resources (not Terraform)
+### Operator-managed dynamic resources (not Terraform)
 
-**Decision**: NCC spokes, Cloud Router BGP peers, `canIpForward`, and `FRRConfiguration` CRs are managed by the controller, not Terraform.
+**Decision**: NCC spokes, Cloud Router BGP peers, `canIpForward`, and `FRRConfiguration` CRs are managed by the operator, not Terraform.
 
 **Rationale**: worker node membership is dynamic (scaling, upgrades, replacements).
 Terraform's plan/apply cycle is too slow for reacting to node events.
-The controller watches Kubernetes nodes and reconciles within seconds.
+The operator watches Kubernetes nodes and reconciles within seconds.
 
 ### Layer2 CUDN topology
 
@@ -508,20 +517,22 @@ For clusters scaling beyond 8 workers, the controller distributes instances acro
    ├── Create ClusterUserDefinedNetwork
    └── Create RouteAdvertisements
 
-4. make bgp.deploy-controller
+4. make bgp.deploy-operator
    ├── controller_gcp_iam/ (GCP SA + WIF)
    ├── WIF credential Secret
-   ├── ConfigMap (from terraform output)
-   ├── Controller manifests (kustomize)
-   ├── In-cluster image build
+   ├── CRDs (BGPRoutingConfig, BGPRouter)
+   ├── Operator RBAC + Deployment
+   ├── BGPRoutingConfig CR (from terraform output)
+   ├── In-cluster image build (or GHCR prebuilt)
    └── Deployment rollout
 
-5. Controller reconciles (continuous)
-   ├── Labels all workers (default **`cudn.redhat.com/bgp-router`**)
-   ├── Enables canIpForward on all workers; annotates nodes (**`cudn.redhat.com/gcp-can-ip-forward`**, nested virt when enabled)
+5. Operator reconciles (continuous)
+   ├── Labels all workers (**`routing.osd.redhat.com/bgp-router`**)
+   ├── Enables canIpForward on all workers; annotates nodes (**`routing.osd.redhat.com/gcp-can-ip-forward`**, nested virt when enabled)
    ├── Creates/updates NCC spokes ({prefix}-0, …)
    ├── Creates/updates Cloud Router BGP peers
-   └── Creates/updates FRRConfiguration CRs
+   ├── Creates/updates FRRConfiguration CRs
+   └── Updates BGPRouter status objects per node
 
 6. make bgp.e2e (validation)
    ├── Deploy test pods (CUDN namespace)
@@ -538,16 +549,16 @@ For clusters scaling beyond 8 workers, the controller distributes instances acro
 | `modules/osd-bgp-routing/` | Reusable Terraform module: NCC hub, Cloud Router, interfaces, firewalls |
 | `cluster_bgp_routing/` | Reference root: composes VPC + cluster + BGP module |
 | `cluster_bgp_routing/scripts/configure-routing.sh` | One-time OpenShift setup (FRR, CUDN, RouteAdvertisements) |
-| `controller/go/` | BGP routing controller (Go / controller-runtime) |
-| `controller/go/internal/reconciler/` | Core reconciliation: node discovery, label sync, multi-spoke NCC, Cloud Router peers, FRR CRs |
-| `controller/go/internal/gcp/` | GCP API: `canIpForward`, NCC spokes, Cloud Router peers |
-| `controller/go/internal/frr/` | Build `FRRConfiguration` CR bodies (unstructured) |
-| `controller/go/internal/config/` | Controller configuration from environment variables |
-| `controller/go/deploy/` | Kubernetes manifests (kustomize) |
-| `controller/python/` | Legacy Python/kopf controller (reference) |
-| `controller_gcp_iam/` | Controller GCP SA + WIF IAM |
+| `operator/` | BGP routing operator (Operator SDK, CRD-based) |
+| `operator/internal/reconciler/` | Core reconciliation: node discovery, label sync, multi-spoke NCC, Cloud Router peers, FRR CRs |
+| `operator/internal/gcp/` | GCP API: `canIpForward`, NCC spokes, Cloud Router peers |
+| `operator/internal/frr/` | Build `FRRConfiguration` CR bodies (unstructured) |
+| `operator/api/v1alpha1/` | CRD types: `BGPRoutingConfig`, `BGPRouter` |
+| `operator/deploy/` | OpenShift deploy manifests (namespace, RBAC, deployment, imagestream, buildconfig) |
+| `controller_gcp_iam/` | Operator GCP SA + WIF IAM |
 | `modules/osd-bgp-controller-iam/` | Reusable module: custom role, SA, WIF binding |
-| `scripts/` | Orchestration: `bgp-apply.sh`, `bgp-deploy-controller-incluster.sh`, `e2e-cudn-connectivity.sh` |
+| `scripts/` | Orchestration: `bgp-apply.sh`, `bgp-deploy-operator-incluster.sh`, `e2e-cudn-connectivity.sh` |
+| `archive/controller/` | Archived legacy Go + Python controllers (replaced by operator) |
 | `references/rosa-bgp/` | AWS ROSA reference implementation (cloned) |
 | `references/fix-bgp-ra.md` | CUDN ingress debugging plan (Phase 1-5) |
 | `KNOWLEDGE.md` | Verified facts and unverified assumptions |

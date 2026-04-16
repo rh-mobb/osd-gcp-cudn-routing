@@ -1,0 +1,332 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: bgproutingconfigs.routing.osd.redhat.com
+spec:
+  group: routing.osd.redhat.com
+  names:
+    kind: BGPRoutingConfig
+    listKind: BGPRoutingConfigList
+    plural: bgproutingconfigs
+    singular: bgproutingconfig
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.suspended
+      name: Suspended
+      type: boolean
+    - jsonPath: .status.routerCount
+      name: Routers
+      type: integer
+    - jsonPath: .status.spokeCount
+      name: Spokes
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          BGPRoutingConfig is the Schema for the bgproutingconfigs API.
+          It defines the desired BGP routing configuration for an OSD-GCP cluster.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: BGPRoutingConfigSpec defines the desired BGP routing configuration
+              for the cluster.
+            properties:
+              cloudRouter:
+                description: CloudRouter specifies the Cloud Router used for BGP peering.
+                properties:
+                  name:
+                    description: Name is the Cloud Router resource name.
+                    minLength: 1
+                    type: string
+                  region:
+                    description: Region is the GCP region of the Cloud Router.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                - region
+                type: object
+              clusterName:
+                description: ClusterName is the OpenShift cluster name (used for BGP
+                  peer naming).
+                minLength: 1
+                type: string
+              debounceSeconds:
+                default: 5
+                description: DebounceSeconds is the debounce period for batching node
+                  events.
+                minimum: 1
+                type: integer
+              frr:
+                description: FRR configures FRR (Free Range Routing) integration.
+                properties:
+                  asn:
+                    default: 65003
+                    description: ASN is the autonomous system number advertised by
+                      FRR on router nodes.
+                    maximum: 4294967295
+                    minimum: 1
+                    type: integer
+                  labelKey:
+                    default: routing.osd.redhat.com/bgp-stack
+                    description: LabelKey is the label key applied to controller-managed
+                      FRRConfiguration CRs.
+                    type: string
+                  labelValue:
+                    default: osd-gcp-bgp
+                    description: LabelValue is the label value applied to controller-managed
+                      FRRConfiguration CRs.
+                    type: string
+                  namespace:
+                    default: openshift-frr-k8s
+                    description: Namespace is the Kubernetes namespace where FRRConfiguration
+                      CRs are created.
+                    type: string
+                type: object
+              gce:
+                description: GCE configures Google Compute Engine instance settings.
+                properties:
+                  enableNestedVirtualization:
+                    default: true
+                    description: |-
+                      EnableNestedVirtualization enables nested virtualization on router GCE instances.
+                      Requires instances.update with RESTART; not supported on OSD-GCP.
+                    type: boolean
+                type: object
+              gcpProject:
+                description: GCPProject is the Google Cloud project ID containing
+                  the cluster.
+                minLength: 1
+                type: string
+              ncc:
+                description: NCC specifies the Network Connectivity Center hub and
+                  spoke configuration.
+                properties:
+                  hubName:
+                    description: HubName is the NCC hub resource name.
+                    minLength: 1
+                    type: string
+                  siteToSite:
+                    description: SiteToSite enables site-to-site data transfer on
+                      spokes.
+                    type: boolean
+                  spokePrefix:
+                    description: SpokePrefix is the naming prefix for controller-managed
+                      NCC spokes.
+                    minLength: 1
+                    type: string
+                required:
+                - hubName
+                - spokePrefix
+                type: object
+              nodeSelector:
+                description: NodeSelector controls which nodes are eligible as BGP
+                  routers.
+                properties:
+                  infraExcludeLabelKey:
+                    default: node-role.kubernetes.io/infra
+                    description: InfraExcludeLabelKey excludes nodes with this label
+                      from router selection.
+                    type: string
+                  labelKey:
+                    default: node-role.kubernetes.io/worker
+                    description: LabelKey is the node label key used to discover candidate
+                      nodes.
+                    type: string
+                  labelValue:
+                    description: LabelValue is the required label value; empty means
+                      the key must exist with any value.
+                    type: string
+                  routerLabelKey:
+                    default: routing.osd.redhat.com/bgp-router
+                    description: RouterLabelKey is the label applied to nodes selected
+                      as active BGP routers.
+                    type: string
+                type: object
+              reconcileIntervalSeconds:
+                default: 60
+                description: ReconcileIntervalSeconds is the interval between reconciliation
+                  passes.
+                minimum: 5
+                type: integer
+              suspended:
+                description: |-
+                  Suspended triggers cleanup of all controller-managed resources and pauses
+                  reconciliation while preserving the configuration for re-enablement.
+                type: boolean
+            required:
+            - cloudRouter
+            - clusterName
+            - gcpProject
+            - ncc
+            type: object
+          status:
+            description: BGPRoutingConfigStatus defines the observed state of BGPRoutingConfig.
+            properties:
+              cloudRouterASN:
+                description: CloudRouterASN is the observed ASN of the Cloud Router.
+                format: int64
+                type: integer
+              cloudRouterInterfaces:
+                description: CloudRouterInterfaces lists the discovered Cloud Router
+                  interface IPs.
+                items:
+                  type: string
+                type: array
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the resource's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastReconcileResult:
+                description: LastReconcileResult summarizes the outcome of the last
+                  reconciliation pass.
+                properties:
+                  canIpForwardChanged:
+                    description: CanIPForwardChanged is the number of instances where
+                      canIpForward was toggled.
+                    type: integer
+                  frrCreated:
+                    description: FRRCreated is the number of FRRConfiguration CRs
+                      created.
+                    type: integer
+                  frrDeleted:
+                    description: FRRDeleted is the number of FRRConfiguration CRs
+                      deleted.
+                    type: integer
+                  nestedVirtualizationChanged:
+                    description: NestedVirtualizationChanged is the number of instances
+                      where nested virt was toggled.
+                    type: integer
+                  nodesFound:
+                    description: NodesFound is the count of eligible BGP router nodes
+                      discovered.
+                    type: integer
+                  peersChanged:
+                    description: PeersChanged indicates whether Cloud Router BGP peers
+                      were modified.
+                    type: boolean
+                  routerLabelsChanged:
+                    description: RouterLabelsChanged is the number of node router
+                      label changes applied.
+                    type: integer
+                  spokesChanged:
+                    description: SpokesChanged is the number of NCC spoke mutations
+                      performed.
+                    type: integer
+                required:
+                - canIpForwardChanged
+                - frrCreated
+                - frrDeleted
+                - nestedVirtualizationChanged
+                - nodesFound
+                - peersChanged
+                - routerLabelsChanged
+                - spokesChanged
+                type: object
+              lastReconcileTime:
+                description: LastReconcileTime is the timestamp of the last successful
+                  reconciliation.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              routerCount:
+                description: RouterCount is the number of active BGP router nodes.
+                type: integer
+              spokeCount:
+                description: SpokeCount is the number of NCC spokes managed by the
+                  controller.
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

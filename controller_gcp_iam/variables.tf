@@ -47,8 +47,8 @@ variable "kubernetes_namespace" {
 
 variable "kubernetes_service_account_name" {
   type        = string
-  default     = "bgp-routing-controller"
-  description = "Kubernetes ServiceAccount name (must match deploy/rbac.yaml)"
+  default     = "bgp-routing-operator"
+  description = "Kubernetes ServiceAccount name (must match operator/deploy/rbac.yaml)"
 }
 
 variable "service_account_id" {

@@ -27,7 +27,7 @@ variable "kubernetes_namespace" {
 variable "kubernetes_service_account_name" {
   type        = string
   description = "Name of the Kubernetes ServiceAccount that impersonates the GCP SA"
-  default     = "bgp-routing-controller"
+  default     = "bgp-routing-operator"
 }
 
 variable "service_account_id" {

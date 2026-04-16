@@ -1,0 +1,7 @@
+## Append samples of your project ##
+resources:
+- v1alpha1_bgproutingconfig.yaml
+- _v1alpha1_bgproutingconfig.yaml
+- v1alpha1_bgprouter.yaml
+- _v1alpha1_bgprouter.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

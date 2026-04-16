@@ -2,7 +2,7 @@
 
 Creates the **static** infrastructure for BGP-based CUDN routing: **Network Connectivity Center** (NCC) hub, a **Cloud Router** with **2 interfaces** (HA pair), and supporting firewall rules so **CUDN prefixes** can be learned into the VPC route table.
 
-The **dynamic** resources — NCC **spoke**, **BGP peers**, **`canIpForward`**, and **`FRRConfiguration`** CRs — are managed by the [BGP routing controller](../../controller/go/README.md), not Terraform. This separation ensures no ownership conflict on re-apply.
+The **dynamic** resources — NCC **spoke**, **BGP peers**, **`canIpForward`**, and **`FRRConfiguration`** CRs — are managed by the [BGP routing operator](../../operator/README.md), not Terraform. This separation ensures no ownership conflict on re-apply.
 
 Set **`ref`** in the module source to a **Git tag** or **commit SHA** for reproducible installs.
 
@@ -30,9 +30,9 @@ Replace **`?ref=main`** with a **tag** or **SHA** before relying on the module i
 
 ## Requirements
 
-- **IAM:** principals applying this module need NCC and network permissions (e.g. `roles/networkconnectivity.hubAdmin`, `roles/compute.networkAdmin`) in addition to usual Compute permissions. See [archive/ILB-vs-BGP.md](../../archive/ILB-vs-BGP.md). Spoke admin (`roles/networkconnectivity.spokeAdmin`) is needed by the **controller**, not Terraform.
-- **`canIpForward=true`** on each router-appliance GCE instance — managed by the **controller** (not this module).
-- **Cloud Router ASN:** the Terraform provider requires an **RFC 6996 private ASN** for `google_compute_router.bgp.asn` (default **64512**). The module outputs this value for the controller.
+- **IAM:** principals applying this module need NCC and network permissions (e.g. `roles/networkconnectivity.hubAdmin`, `roles/compute.networkAdmin`) in addition to usual Compute permissions. See [archive/ILB-vs-BGP.md](../../archive/ILB-vs-BGP.md). Spoke admin (`roles/networkconnectivity.spokeAdmin`) is needed by the **operator**, not Terraform.
+- **`canIpForward=true`** on each router-appliance GCE instance — managed by the **operator** (not this module).
+- **Cloud Router ASN:** the Terraform provider requires an **RFC 6996 private ASN** for `google_compute_router.bgp.asn` (default **64512**). The module outputs this value for the operator.
 
 ## Resources Created
 
@@ -43,7 +43,7 @@ Replace **`?ref=main`** with a **tag** or **SHA** before relying on the module i
 - `google_compute_firewall` — worker subnet → CUDN (`worker_subnet_to_cudn_firewall_mode`: **`e2etest`** default = ICMP + TCP/8080, **`all`**, or **`none`**); BGP TCP **179** (optional **`routing_worker_target_tags`** scoping)
 - (Optional) Echo VM and firewalls (same pattern as the ILB module)
 
-**Not created by this module** (managed by the controller):
+**Not created by this module** (managed by the operator):
 - `google_network_connectivity_spoke` (NCC spoke with linked router appliance instances)
 - `google_compute_router_peer` (BGP peers — 2 per router node)
 
@@ -55,7 +55,7 @@ With **`reserve_cloud_router_interface_ips = true`** (default), Terraform create
 
 A **`check`** block validates interface IPs against the worker subnetwork **primary IPv4** CIDR (IPv4 **uint32** range math; works on Terraform **1.0+** without the **`cidrcontains`** function from **1.8+**).
 
-Outputs **`cloud_router_interface_ips`**, **`cloud_router_name`**, **`ncc_hub_name`**, **`ncc_spoke_prefix`**, **`frr_asn`**, and **`cloud_router_asn`** are consumed by the controller's ConfigMap (as **`NCC_SPOKE_PREFIX`**; the controller creates spokes **`{prefix}-0`**, **`{prefix}-1`**, …).
+Outputs **`cloud_router_interface_ips`**, **`cloud_router_name`**, **`ncc_hub_name`**, **`ncc_spoke_prefix`**, **`frr_asn`**, and **`cloud_router_asn`** are consumed by the operator's `BGPRoutingConfig` CR (the operator creates spokes **`{prefix}-0`**, **`{prefix}-1`**, …).
 
 ## Optional Echo Client VM
 
