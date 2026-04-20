@@ -48,7 +48,8 @@ help:
 	@echo "  bgp.destroy-operator   Delete BGPRoutingConfig (finalizer cleanup), operator resources, CRDs, then IAM terraform destroy"
 	@echo ""
 	@echo "  virt.deploy            Hyperdisk pool + StorageClass + VolumeSnapshotClass, then OpenShift Virtualization (CNV)"
-	@echo "  virt.destroy-storage   PVCs/snapshots/CDI cleanup, then SC/VSC + standard-csi default; GCP disks in pool + Hyperdisk pools (all Terraform zones)"
+	@echo "  virt.destroy-storage   PVCs/snapshots/CDI cleanup, then SC/VSC + standard-csi default; GCP disks in pool + Hyperdisk pool (virt_storage_zone; fallback: all worker zones)"
+	@echo "  virt.e2e               Deploy virt-e2e VMs + virtctl console/ssh hints (default); add --run-tests for full e2e (see scripts/README.md)"
 	@echo ""
 	@echo "  operator.build         Compile the operator binary (go build under $(OPERATOR_DIR)/)"
 	@echo "  operator.test          go test ./... under $(OPERATOR_DIR)/"
@@ -150,12 +151,15 @@ bgp.destroy-operator:
 	@echo "=== bgp.destroy-operator: finished ==="
 
 # ---- OpenShift Virtualization + RWX storage ----
-.PHONY: virt.deploy virt.destroy-storage
+.PHONY: virt.deploy virt.destroy-storage virt.e2e
 virt.deploy:
 	@bash "$(CURDIR)/scripts/deploy-openshift-virt.sh"
 
 virt.destroy-storage:
 	@bash "$(CURDIR)/scripts/destroy-openshift-virt-storage.sh"
+
+virt.e2e:
+	@bash "$(CURDIR)/scripts/e2e-virt-live-migration.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)"
 
 .PHONY: wif.init wif.plan wif.apply wif.destroy wif.undelete-soft-deleted-roles
 wif.init:

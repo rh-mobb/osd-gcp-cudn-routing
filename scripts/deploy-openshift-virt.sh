@@ -6,6 +6,7 @@
 # operator via OLM and creates a HyperConverged CR.
 #
 # Reads GCP project / region / zone from cluster_bgp_routing terraform outputs.
+# Zone: virt_storage_zone (bare metal pool AZ when create_baremetal_worker_pool is true), else first availability_zones entry.
 #
 # Environment variables:
 #   STORAGE_POOL_NAME         Name of the Hyperdisk storage pool (default: ocp-virt-pool)
@@ -67,11 +68,14 @@ cd "$CLUSTER_DIR"
 GCP_PROJECT=$(terraform output -raw gcp_project_id)
 GCP_REGION=$(terraform output -raw gcp_region)
 
-ZONE_JSON=$(terraform output -json availability_zones 2>/dev/null || echo '[]')
-GCP_ZONE=$(echo "$ZONE_JSON" | jq -r '.[0] // empty')
+GCP_ZONE=$(terraform output -raw virt_storage_zone 2>/dev/null || true)
+if [[ -z "$GCP_ZONE" ]]; then
+  ZONE_JSON=$(terraform output -json availability_zones 2>/dev/null || echo '[]')
+  GCP_ZONE=$(echo "$ZONE_JSON" | jq -r '.[0] // empty')
+fi
 if [[ -z "$GCP_ZONE" ]]; then
   GCP_ZONE="${GCP_REGION}-a"
-  echo "  No availability_zones output; defaulting to ${GCP_ZONE}"
+  echo "  No virt_storage_zone / availability_zones; defaulting to ${GCP_ZONE}"
 fi
 
 echo "  project=${GCP_PROJECT}  region=${GCP_REGION}  zone=${GCP_ZONE}"

@@ -1,3 +1,6 @@
+# Virt e2e ephemeral SSH keys (scripts/e2e-virt-live-migration.sh)
+**/.virt-e2e/
+
 # Terraform
 .terraform/
 .terraform.lock.hcl

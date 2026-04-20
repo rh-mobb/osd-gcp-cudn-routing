@@ -4,7 +4,8 @@
 # Order matters: GCP refuses storage-pool delete while zonal disks still reference the pool.
 # This script deletes CDI/os-images consumers, VolumeSnapshots, PVCs using sp-balanced-storage,
 # then VolumeSnapshotClass / StorageClass / default SC restore, then GCP disks in the pool
-# (orphans), then storage pool(s) in each zone from cluster_bgp_routing availability_zones.
+# (orphans), then the storage pool in virt_storage_zone (bare metal AZ when BM pool is enabled),
+# or every availability_zones entry if that output is missing (older Terraform state).
 #
 # Environment:
 #   STORAGE_POOL_NAME        Pool id (default: ocp-virt-pool)
@@ -32,15 +33,19 @@ echo "=== Reading cluster_bgp_routing terraform outputs ==="
 cd "$CLUSTER_DIR"
 GCP_PROJECT=$(terraform output -raw gcp_project_id)
 GCP_REGION=$(terraform output -raw gcp_region)
-ZONE_JSON=$(terraform output -json availability_zones 2>/dev/null || echo '[]')
-
 ZONES=()
-while IFS= read -r z; do
-  [[ -n "$z" ]] && ZONES+=("$z")
-done < <(echo "$ZONE_JSON" | jq -r '.[]?')
-if [[ ${#ZONES[@]} -eq 0 ]]; then
-  ZONES=("${GCP_REGION}-a")
-  echo "  No availability_zones output; using ${ZONES[0]}"
+virt_zone=$(terraform output -raw virt_storage_zone 2>/dev/null || true)
+if [[ -n "$virt_zone" ]]; then
+  ZONES=("$virt_zone")
+else
+  ZONE_JSON=$(terraform output -json availability_zones 2>/dev/null || echo '[]')
+  while IFS= read -r z; do
+    [[ -n "$z" ]] && ZONES+=("$z")
+  done < <(echo "$ZONE_JSON" | jq -r '.[]?')
+  if [[ ${#ZONES[@]} -eq 0 ]]; then
+    ZONES=("${GCP_REGION}-a")
+    echo "  No virt_storage_zone / availability_zones; using ${ZONES[0]}"
+  fi
 fi
 
 echo "  project=${GCP_PROJECT}  region=${GCP_REGION}  zones=${ZONES[*]}"

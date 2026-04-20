@@ -43,7 +43,7 @@ variable "compute_machine_type" {
 
 variable "compute_nodes" {
   type        = number
-  default     = 6
+  default     = 3
   description = "Number of worker nodes in the default machine pool"
 }
 
@@ -56,6 +56,52 @@ variable "availability_zones" {
   validation {
     condition     = var.availability_zones == null || length(var.availability_zones) > 0
     error_message = "availability_zones must be null (use region default) or a non-empty list of zone names."
+  }
+}
+
+variable "create_baremetal_worker_pool" {
+  type        = bool
+  default     = true
+  description = "When true, provisions an additional osd-cluster machine pool with bare metal workers (see baremetal_* variables). Names 'worker' and 'workers-*' are reserved by OCM; this pool uses baremetal_machine_pool_name."
+}
+
+variable "baremetal_machine_pool_name" {
+  type        = string
+  default     = "baremetal"
+  description = "OCM machine pool name for bare metal workers (must not be 'worker' or start with 'workers-')."
+
+  validation {
+    condition     = var.baremetal_machine_pool_name != "worker" && !startswith(var.baremetal_machine_pool_name, "workers-")
+    error_message = "baremetal_machine_pool_name must not be 'worker' or start with 'workers-' (reserved by OCM)."
+  }
+}
+
+variable "baremetal_worker_replicas" {
+  type        = number
+  default     = 2
+  description = "Fixed replica count for the bare metal machine pool (autoscaling disabled)."
+
+  validation {
+    condition     = var.baremetal_worker_replicas >= 1 && floor(var.baremetal_worker_replicas) == var.baremetal_worker_replicas
+    error_message = "baremetal_worker_replicas must be a positive integer."
+  }
+}
+
+variable "baremetal_instance_type" {
+  type        = string
+  default     = "c3-standard-192-metal"
+  description = "GCP instance type for the bare metal machine pool (OCM catalog; must exist in baremetal_availability_zones)."
+}
+
+variable "baremetal_availability_zones" {
+  type        = list(string)
+  default     = null
+  nullable    = true
+  description = "Single-AZ (or same-AZ) list for the bare metal pool — bare metal SKUs are zone-specific. If null, uses the first entry in the resolved default worker availability_zones (same as the first default worker zone when zones are sorted by name)."
+
+  validation {
+    condition     = var.baremetal_availability_zones == null || length(var.baremetal_availability_zones) > 0
+    error_message = "baremetal_availability_zones must be null or a non-empty list."
   }
 }
 

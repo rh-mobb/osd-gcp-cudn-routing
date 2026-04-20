@@ -18,6 +18,13 @@ output "availability_zones" {
   description = "GCP zones used for the default worker pool"
 }
 
+# Zonal Hyperdisk storage pools must live in the same zone as workers that attach volumes.
+# Bare metal Virt is pinned to baremetal_availability_zones (single AZ); default workers may be multi-AZ.
+output "virt_storage_zone" {
+  value       = var.create_baremetal_worker_pool ? local.baremetal_availability_zones[0] : local.cluster_availability_zones[0]
+  description = "GCP zone for Hyperdisk pool + sp-balanced-storage (deploy-openshift-virt.sh) — bare metal pool zone when create_baremetal_worker_pool is true, else first default worker zone"
+}
+
 output "cluster_name" {
   value       = var.cluster_name
   description = "Cluster name"

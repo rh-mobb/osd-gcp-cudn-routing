@@ -104,7 +104,7 @@ spec:
   frr:
     asn: ${FRR_ASN}
   gce:
-    enableNestedVirtualization: true
+    enableNestedVirtualization: false
   nodeSelector:
     labelKey: "node-role.kubernetes.io/worker"
     labelValue: ""

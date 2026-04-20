@@ -114,7 +114,7 @@ Convention: **`stack.action`** separated by dots; multi-word segments use hyphen
 | `wif.*` | **`wif_config/`** (plus **`wif.undelete-soft-deleted-roles`** — undeletes soft-deleted WIF custom roles using **`wif_config/`** Terraform + **`gcloud`**; optional **`WIF_UNDELETE_ARGS`**; [scripts/README.md](scripts/README.md)) |
 | `fmt`, `validate` | WIF, **`modules/*`**, **`cluster_bgp_routing`**, **`controller_gcp_iam`** |
 
-Terraform extras: `TF_VARS`, `EXTRA_TF_VARS`. Env vars for apply scripts: [scripts/README.md](scripts/README.md).
+Terraform extras: `TF_VARS`, `EXTRA_TF_VARS`. Env vars for apply scripts: [scripts/README.md](scripts/README.md). **`cluster_bgp_routing`** defaults to **`create_baremetal_worker_pool = true`** (second pool: **2** bare metal nodes in one AZ; set **`false`** to skip).
 
 **Archived (ILB + legacy controllers):** see [**archive/README.md**](archive/README.md).
 

@@ -50,3 +50,35 @@ orchestration_wait_api_tls() {
   echo "  If you exported OC_LOGIN_EXTRA_ARGS= for strict TLS, increase OC_WAIT_API_TLS_MAX_SEC or fix trust." >&2
   return 1
 }
+
+# Retry oc login until success or timeout. The API may be reachable before OCM accepts the
+# admin password from Terraform output; poll rather than failing once.
+# Args: api_url, admin_username, admin_password.
+# Env: OC_LOGIN_EXTRA_ARGS (split on words), OC_LOGIN_RETRY_MAX_SEC (default 600),
+# OC_LOGIN_RETRY_INTERVAL_SEC (default 20).
+orchestration_retry_oc_login() {
+  local api_url="$1"
+  local admin_user="$2"
+  local admin_pass="$3"
+  local max_sec="${OC_LOGIN_RETRY_MAX_SEC:-600}"
+  local interval="${OC_LOGIN_RETRY_INTERVAL_SEC:-20}"
+  local deadline
+  deadline=$(($(date +%s) + max_sec))
+
+  echo "Logging in (retries until success or ${max_sec}s; OC_LOGIN_RETRY_MAX_SEC / OC_LOGIN_RETRY_INTERVAL_SEC)..."
+  while (( $(date +%s) < deadline )); do
+    # shellcheck disable=SC2086
+    if oc login "$api_url" -u "$admin_user" -p "$admin_pass" $OC_LOGIN_EXTRA_ARGS; then
+      return 0
+    fi
+    echo "  Login failed — retrying with --insecure-skip-tls-verify..."
+    # shellcheck disable=SC2086
+    if oc login "$api_url" -u "$admin_user" -p "$admin_pass" --insecure-skip-tls-verify $OC_LOGIN_EXTRA_ARGS; then
+      return 0
+    fi
+    echo "  oc login unsuccessful (admin credential may still be provisioning); sleeping ${interval}s..."
+    sleep "$interval"
+  done
+  echo "Error: timed out after ${max_sec}s waiting for oc login (increase OC_LOGIN_RETRY_MAX_SEC if needed)." >&2
+  return 1
+}

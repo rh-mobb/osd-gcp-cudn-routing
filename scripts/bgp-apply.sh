@@ -46,11 +46,7 @@ ADMIN_PASS=$(terraform output -raw admin_password)
 if [[ "${OC_LOGIN_EXTRA_ARGS:-}" != *"--insecure-skip-tls-verify"* ]]; then
   orchestration_wait_api_tls "$API_URL"
 fi
-# shellcheck disable=SC2086
-if ! oc login "$API_URL" -u "$ADMIN_USER" -p "$ADMIN_PASS" $OC_LOGIN_EXTRA_ARGS 2>&1; then
-  echo "  Login failed — retrying with --insecure-skip-tls-verify..."
-  oc login "$API_URL" -u "$ADMIN_USER" -p "$ADMIN_PASS" --insecure-skip-tls-verify $OC_LOGIN_EXTRA_ARGS
-fi
+orchestration_retry_oc_login "$API_URL" "$ADMIN_USER" "$ADMIN_PASS"
 
 echo "=== Step 4/4: configure-routing.sh (FRR enable, CUDN, RouteAdvertisements) ==="
 cd "$CLUSTER_DIR"

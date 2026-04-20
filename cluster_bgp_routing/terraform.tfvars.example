@@ -30,6 +30,13 @@ gcp_region = "us-central1"
 # Single-AZ example:
 # availability_zones = ["us-central1-a"]
 
+# Second machine pool: bare metal workers (same AZ — one zone list; default zone = first default worker zone).
+# OCM reserves names "worker" and "workers-*"; pool name defaults to "baremetal".
+# create_baremetal_worker_pool = false
+# baremetal_worker_replicas = 2
+# baremetal_instance_type = "c3-standard-192-metal"
+# baremetal_availability_zones = ["us-central1-a"]
+
 # CUDN CIDR advertised via BGP
 # cudn_cidr = "10.100.0.0/16"
 

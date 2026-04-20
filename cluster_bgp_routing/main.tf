@@ -13,6 +13,23 @@ locals {
     : local.sorted_region_zones
   )
   cluster_availability_zones = var.availability_zones != null ? var.availability_zones : local.default_availability_zones
+
+  # Bare metal SKUs are not available in every zone; pin the optional BM pool to one AZ (default: same as first default worker zone).
+  baremetal_availability_zones = var.baremetal_availability_zones != null ? var.baremetal_availability_zones : [local.cluster_availability_zones[0]]
+
+  baremetal_machine_pool = {
+    name                = var.baremetal_machine_pool_name
+    instance_type       = var.baremetal_instance_type
+    autoscaling_enabled = false
+    replicas            = var.baremetal_worker_replicas
+    min_replicas        = null
+    max_replicas        = null
+    availability_zones  = local.baremetal_availability_zones
+    labels              = {}
+    taints              = []
+    root_volume_size    = null
+    secure_boot         = false
+  }
 }
 
 module "osd_vpc" {
@@ -44,6 +61,17 @@ check "machine_type_available" {
   }
 }
 
+check "baremetal_machine_type_available" {
+  assert {
+    condition     = !var.create_baremetal_worker_pool || contains(local.machine_type_ids, var.baremetal_instance_type)
+    error_message = <<-EOT
+      Bare metal instance type '${var.baremetal_instance_type}' is not listed in the OCM GCP catalog for '${var.gcp_region}'.
+      Set baremetal_instance_type to a catalog id, set create_baremetal_worker_pool=false to skip the pool, or fix baremetal_availability_zones if the type is zone-specific.
+      Catalog sample: ${join(", ", slice(local.machine_type_ids, 0, min(20, length(local.machine_type_ids))))}${length(local.machine_type_ids) > 20 ? ", ..." : ""}
+    EOT
+  }
+}
+
 module "cluster" {
   source = "git::https://github.com/rh-mobb/terraform-provider-osd-google.git//modules/osd-cluster"
 
@@ -70,6 +98,8 @@ module "cluster" {
 
   create_admin   = true
   admin_password = var.admin_password != "" ? var.admin_password : null
+
+  machine_pools = var.create_baremetal_worker_pool ? [local.baremetal_machine_pool] : []
 }
 
 # Phase 2: BGP / NCC / Cloud Router (static infra only — controller manages spoke + peers)

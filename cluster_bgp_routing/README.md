@@ -95,7 +95,7 @@ Details: [archive/ILB-vs-BGP.md § Additional IAM Requirements](../archive/ILB-v
 
 ## Variables and apply order
 
-- **Authoritative inputs:** [`variables.tf`](variables.tf), [`terraform.tfvars.example`](terraform.tfvars.example). **Workers:** default **6** nodes, **multi-AZ** when `availability_zones` is omitted (**first three zones** in `gcp_region`); set `availability_zones` to a one-element list for single-AZ. **Firewall:** `worker_subnet_to_cudn_firewall_mode` (`all` \| **`e2etest`** \| `none`), `routing_worker_target_tags` (optional GCP network tags for router nodes). **Cloud Router IPs:** `reserve_cloud_router_interface_ips` (default **true**). **Remote state:** [`backend.tf.example`](backend.tf.example), [docs/terraform-backend-gcs.md](../docs/terraform-backend-gcs.md).
+- **Authoritative inputs:** [`variables.tf`](variables.tf), [`terraform.tfvars.example`](terraform.tfvars.example). **Workers:** default **3** nodes in the default pool, **multi-AZ** when `availability_zones` is omitted (**first three zones** in `gcp_region`); set `availability_zones` to a one-element list for single-AZ. **Bare metal pool (optional):** `create_baremetal_worker_pool` (default **true**) adds a second **`osd-cluster`** machine pool with **`baremetal_worker_replicas`** (default **2**) of **`baremetal_instance_type`** (default **`c3-standard-192-metal`**) in **`baremetal_availability_zones`** — if null, the first entry in the resolved default worker zones is used so the pool stays in **one AZ** with the first default worker zone. **OpenShift Virt / Hyperdisk:** `terraform output -raw virt_storage_zone` is the GCP zone for **`make virt.deploy`** (zonal pool + **StorageClass**); it tracks the bare metal AZ when the BM pool is enabled. **Secure Boot** is off for `*-metal` (required). Set **`create_baremetal_worker_pool = false`** to skip bare metal (quota, cost, or regions without the SKU). **Firewall:** `worker_subnet_to_cudn_firewall_mode` (`all` \| **`e2etest`** \| `none`), `routing_worker_target_tags` (optional GCP network tags for router nodes). **Cloud Router IPs:** `reserve_cloud_router_interface_ips` (default **true**). **Remote state:** [`backend.tf.example`](backend.tf.example), [docs/terraform-backend-gcs.md](../docs/terraform-backend-gcs.md).
 - **Minimum before apply:** set **`TF_VAR_gcp_project_id`** and **`TF_VAR_cluster_name`** (or **`terraform.tfvars`**) so they match **`wif_config`**. Use **`terraform.tfvars.example`** as a guide for additional variables (region, ASNs, BGP toggles, node counts, etc.).
 - **Flow:** WIF first → **single apply** with **`enable_bgp_routing = true`** (and optionally **`enable_echo_client_vm = true`**) → `oc login` → **`configure-routing.sh`** (one-time: FRR enable, CUDN, RouteAdvertisements) → **`make bgp.deploy-operator`** (IAM + Secret + CRDs + RBAC + **`BGPRoutingConfig`** from **`terraform output`** + operator build; see [root README quick start](../README.md#quick-start--bgp)).
 
@@ -173,7 +173,7 @@ From the **repo root**:
 make bgp.deploy-operator
 ```
 
-Or see [operator/README.md](../operator/README.md) and [`scripts/bgp-deploy-operator-incluster.sh`](../scripts/bgp-deploy-operator-incluster.sh) for the detailed step-by-step.
+The script applies **`BGPRoutingConfig/cluster`** with **`spec.gce.enableNestedVirtualization: false`** (GCE nested virt is not used on OSD-GCP). Or see [operator/README.md](../operator/README.md) and [`scripts/bgp-deploy-operator-incluster.sh`](../scripts/bgp-deploy-operator-incluster.sh) for the detailed step-by-step.
 
 ---
 

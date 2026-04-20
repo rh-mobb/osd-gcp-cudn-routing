@@ -414,6 +414,12 @@ When the workload is a KubeVirt VM rather than a pod:
 - **Binding**: VMs attach to a primary Layer2 UDN via **`l2bridge`** binding (direct L2 connection to the UDN's virtual switch).
 - **Live migration**: requires Layer2 topology + `ipam.lifecycle: Persistent` + **RWX PVCs**. A dedicated migration network is recommended.
 - **Limitations on primary UDN**: `virtctl ssh`, `oc port-forward`, and headless services are not available.
+- **`virtctl console`**: the web UI opens the serial console through the **OpenShift console** (different path than the CLI). **`virtctl`** opens a **WebSocket** to the **Kubernetes API** aggregated subresource (`.../virtualmachineinstances/.../console`). If **`virtctl version`** already matches the cluster but you still see **`Can't connect to websocket (404)`** / **bad handshake**:
+  - **HTTP(S) proxy**: if **`HTTP_PROXY`**, **`HTTPS_PROXY`**, or **`http_proxy`**, **`https_proxy`** are set, the upgrade request may be sent through a proxy that does not support WebSockets and returns **404**. Unset them for that shell, or extend **`NO_PROXY`** / **`no_proxy`** to include the API server host from **`oc whoami --show-server`** (parse the hostname; add **`.svc`** / cluster-internal hosts only if your client talks to them).
+  - **`proxy-url` in kubeconfig**: some **virtctl** releases ignored **`clusters[].cluster.proxy-url`** for console WebSockets; **`HTTPS_PROXY`** (or a newer **virtctl**) may behave differently — see [kubevirt#12808](https://github.com/kubevirt/kubevirt/issues/12808).
+  - **Aggregation**: **`oc get apiservice | grep subresources.kubevirt.io`** should show **AVAILABLE=True**; if not, fix **openshift-cnv** / **virt-api** before expecting **virtctl** console to work.
+  - **Try VMI**: **`virtctl console vmi/VM_NAME -n NAMESPACE`** (name is usually the same as the **VirtualMachine** when running).
+  - **Fallback**: use the **web console** VM serial console, or follow current Red Hat docs for **accessing virtual machines** (advanced options such as **virt-launcher** exec vary by CNV version).
 - **Default pod network disruption**: the masquerade binding on the default pod network **interrupts traffic during live migration** — this is why CUDN is used.
 - **EgressIP**: advertising EgressIPs from a Layer2 CUDN is **not supported**.
 

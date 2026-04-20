@@ -58,6 +58,10 @@ When making changes to this codebase, AI agents **must**:
 - **Keep documentation up to date** — Update [README.md](README.md) and module READMEs when behavior or inputs change.
 - **Update the changelog** — For user-facing changes, add an entry under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) using Added, Changed, Deprecated, Removed, Fixed, or Security.
 
+## Debugging
+
+When investigating failures or unexpected behavior, agents should **use the tools available in the environment** (MCP integrations, CLIs, cluster/API clients, logs, tests, and repository search) to gather evidence **before** changing code or configuration. Prefer a short, targeted investigation that confirms root cause over speculative edits.
+
 ## Self-Review (Mandatory)
 
 Before ANY response containing code, analysis, or recommendations:
