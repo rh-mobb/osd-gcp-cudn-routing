@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Remove Hyperdisk storage created for OpenShift Virtualization on GCP (virt.deploy).
 #
-# Order matters: GCP refuses storage-pool delete while zonal disks still reference the pool.
-# This script deletes CDI/os-images consumers, VolumeSnapshots, PVCs using sp-balanced-storage,
+# Order matters: running KubeVirt VMs keep PVCs in use; delete all VirtualMachines (and wait for
+# VMIs) first. Then CDI/os-images consumers, VolumeSnapshots, PVCs using sp-balanced-storage,
 # then VolumeSnapshotClass / StorageClass / default SC restore, then GCP disks in the pool
 # (orphans), then the storage pool in virt_storage_zone (bare metal AZ when BM pool is enabled),
 # or every availability_zones entry if that output is missing (older Terraform state).
@@ -91,6 +91,27 @@ wait_for_snapshots_cleared() {
   return 0
 }
 
+count_vmis() {
+  oc get virtualmachineinstance -A -o json 2>/dev/null | jq '[.items[]?] | length' || echo 999
+}
+
+wait_for_vmis_cleared() {
+  local elapsed=0
+  while [[ $elapsed -lt $VIRT_DESTROY_WAIT_SEC ]]; do
+    local n
+    n=$(count_vmis)
+    if [[ "${n}" -eq 0 ]]; then
+      return 0
+    fi
+    echo "  Waiting for VMIs to terminate (${n} remaining, ${elapsed}s/${VIRT_DESTROY_WAIT_SEC}s)..."
+    sleep 10
+    elapsed=$((elapsed + 10))
+  done
+  echo "Error: timed out after ${VIRT_DESTROY_WAIT_SEC}s; VMIs still present." >&2
+  echo "  Hint: oc get virtualmachineinstance -A" >&2
+  return 1
+}
+
 delete_disks_in_storage_pool_zone() {
   local z=$1
   local json names
@@ -113,7 +134,29 @@ if [[ "$SKIP_CLUSTER_STORAGE" != "1" ]]; then
   }
 
   echo ""
-  echo "=== Step 1/3: Kubernetes — unprovision volumes, then StorageClass / VolumeSnapshotClass ==="
+  echo "=== Step 1/3: Kubernetes — VMs, unprovision volumes, then StorageClass / VolumeSnapshotClass ==="
+
+  if oc get crd virtualmachines.kubevirt.io >/dev/null 2>&1; then
+    if oc get crd virtualmachineinstancemigrations.kubevirt.io >/dev/null 2>&1; then
+      if oc get virtualmachineinstancemigration -A -o name >/dev/null 2>&1; then
+        echo "  Deleting VirtualMachineInstanceMigrations (all namespaces)..."
+        oc delete virtualmachineinstancemigration --all -A --wait=true --timeout=120s 2>/dev/null || true
+      fi
+    fi
+    if oc get virtualmachine -A -o json 2>/dev/null | jq -e '.items | length > 0' >/dev/null 2>&1; then
+      echo "  Deleting all VirtualMachines (all namespaces)..."
+      if ! oc delete virtualmachine --all -A --wait=true --timeout="${VIRT_DESTROY_WAIT_SEC}s" 2>/dev/null; then
+        echo "  Warning: VM delete did not finish in ${VIRT_DESTROY_WAIT_SEC}s; issuing async delete and waiting for VMIs..." >&2
+        oc delete virtualmachine --all -A --wait=false 2>/dev/null || true
+      fi
+      wait_for_vmis_cleared
+    else
+      echo "  No VirtualMachine objects in the cluster."
+      wait_for_vmis_cleared
+    fi
+  else
+    echo "  KubeVirt VirtualMachine CRD not installed; skipping VM cleanup."
+  fi
 
   echo "  Removing CDI / os-images importers and PVCs that use sp-balanced-storage..."
   if oc get ns "$OS_IMAGES_NS" >/dev/null 2>&1; then

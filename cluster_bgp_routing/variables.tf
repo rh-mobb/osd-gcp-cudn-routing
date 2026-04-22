@@ -164,16 +164,16 @@ variable "reserve_cloud_router_interface_ips" {
   description = "Reserve Cloud Router interface IPs with google_compute_address (recommended). Set false for brownfield upgrades if plan fails until interfaces are recreated; see modules/osd-bgp-routing README."
 }
 
-variable "enable_echo_client_vm" {
+variable "enable_echo_vm" {
   type        = bool
-  default     = false
-  description = "Optional echo VM for CUDN checks. Requires enable_bgp_routing=true."
+  default     = true
+  description = "Create the echo VM (icanhazip-clone) in the spoke worker subnet. Independent of enable_bgp_routing — useful for hub/spoke NAT verification before the cluster is deployed."
 }
 
 variable "echo_client_vm_zone" {
   type        = string
   default     = null
-  description = "Zone for the echo VM. If null, uses the first entry in the resolved worker-pool zones (see availability_zones)."
+  description = "Zone for the echo VM. If null, uses the first resolved worker-pool zone (see availability_zones)."
 }
 
 variable "echo_client_vm_port" {
@@ -191,7 +191,87 @@ variable "echo_client_vm_machine_type" {
 variable "enable_psc" {
   type        = bool
   default     = false
-  description = "Enable PSC for private cluster (requires OpenShift 4.17+)"
+  description = "Enable PSC subnet for private cluster (requires OpenShift 4.17+). Subnet-only; additional PSC globals from osd-vpc may be needed for production private installs — validate against Red Hat PSC requirements."
+}
+
+variable "psc_subnet_cidr" {
+  type        = string
+  default     = null
+  nullable    = true
+  description = "Private Service Connect subnet CIDR (/29 or larger when enable_psc is true). Typical: 10.0.64.0/29."
+}
+
+variable "hub_vpc_cidr" {
+  type        = string
+  default     = "10.20.0.0/16"
+  description = "IPv4 CIDR for the hub VPC (NAT / egress tier). Must not overlap spoke subnets."
+}
+
+variable "control_plane_subnet_cidr" {
+  type        = string
+  default     = "10.0.0.0/19"
+  description = "OpenShift control plane subnet CIDR (matches osd-vpc master_cidr scale)."
+}
+
+variable "compute_subnet_cidr" {
+  type        = string
+  default     = "10.0.32.0/19"
+  description = "Worker subnet CIDR (matches osd-vpc worker_cidr scale); Cloud Router interface IPs resolve from here."
+}
+
+variable "nat_vm_machine_type" {
+  type        = string
+  default     = "e2-medium"
+  description = "Machine type for hub NAT gateway VMs."
+}
+
+variable "nat_vm_zone_limit" {
+  type        = number
+  default     = 3
+  description = "Place up to this many NAT VMs across the first N availability zones (≤ length of worker zones)."
+}
+
+variable "nat_healing_initial_delay_sec" {
+  type        = number
+  default     = 180
+  description = "MIG auto-healing initial delay for NAT VMs."
+}
+
+variable "nat_ilb_host_offset" {
+  type        = number
+  default     = 5
+  description = "Host offset within hub egress subnet for reserved internal NLB VIP."
+}
+
+variable "nat_health_check_port" {
+  type        = number
+  default     = 8080
+  description = "TCP port for NAT VM health checks (startup script serves HTTP via python)."
+}
+
+variable "nat_enable_iap_ssh" {
+  type        = bool
+  default     = true
+  description = "Allow IAP TCP tunneling (35.235.240.0/20 → TCP/22) on NAT VMs. Enables gcloud compute ssh --tunnel-through-iap for debugging. Set false in hardened environments."
+}
+
+variable "spoke_enable_iap_ssh" {
+  type        = bool
+  default     = true
+  description = "Allow IAP TCP tunneling (35.235.240.0/20 → TCP/22) on all spoke VPC instances (test VMs, debug nodes). Set false in hardened environments."
+}
+
+variable "spoke_default_route_priority" {
+  type        = number
+  default     = 800
+  description = "Priority for spoke 0.0.0.0/0 route to hub NAT ILB (BGP and subnet routes should be more preferred)."
+}
+
+check "psc_subnet_when_enabled" {
+  assert {
+    condition     = !var.enable_psc || var.psc_subnet_cidr != null
+    error_message = "When enable_psc is true, set psc_subnet_cidr (e.g. 10.0.64.0/29)."
+  }
 }
 
 variable "ncc_spoke_site_to_site_data_transfer" {

@@ -35,7 +35,7 @@ terraform init -upgrade
 echo "=== Step 2/4: Cluster + VPC + BGP static infra ==="
 terraform apply -auto-approve \
   -var='enable_bgp_routing=true' \
-  -var='enable_echo_client_vm=true' \
+  -var='enable_echo_vm=true' \
   "$@"
 
 echo "=== Step 3/4: oc login ==="

@@ -6,6 +6,20 @@ See [KNOWLEDGE.md](KNOWLEDGE.md) for the evidence base behind these decisions.
 
 ---
 
+## Network topology (hub + spoke)
+
+[GCP VPC](https://cloud.google.com/vpc/docs/vpc) networking is structured as:
+
+- **Spoke VPC** ([`modules/osd-spoke-vpc`](modules/osd-spoke-vpc/)): OpenShift control-plane, worker, and optional PSC subnets (`*-master-subnet`, `*-worker-subnet`, `*-psc-subnet`). Same subnet **names** as upstream `osd-vpc` so `osd-cluster` plumbing is unchanged.
+- **Hub VPC** ([`modules/osd-hub-vpc`](modules/osd-hub-vpc/)): egress-only tier — regional MIG of NAT VMs (**nftables MASQUERADE**), **internal passthrough NLB**, hub-only **Cloud NAT** for hub VM management traffic only.
+- **VPC peering** (`google_compute_network_peering`): bidirectional **`export_custom_routes`** / **`import_custom_routes`** so BGP-learned CUDN prefixes can propagate to the hub where needed.
+- **Default route** (spoke): **`0.0.0.0/0`** → **`next_hop_ilb`** (hub NLB forwarding rule). More-specific BGP and subnet routes retain priority over this default (`priority` configurable).
+- **`cluster_bgp_routing/`**: wires hub → spoke → peering → default route → `osd-cluster` → optional `osd-bgp-routing`.
+
+This avoids **Cloud NAT source registration** failures for CUDN-overlay sources and avoids **route tag** scoping on workers because NAT VMs are **not** in the spoke VPC.
+
+---
+
 ## Problem
 
 KubeVirt and migration workloads on OpenShift Dedicated need:
@@ -39,40 +53,30 @@ The AWS reference uses `c5.metal` instances (bare-metal on AWS), which happens t
 
 ## Solution Overview
 
-BGP advertises the CUDN prefix from worker nodes into the GCP VPC via NCC Router Appliance and Cloud Router.
+BGP advertises the CUDN prefix from worker nodes into the **spoke VPC** via NCC Router Appliance and Cloud Router (same logical model as before).
+
+**Internet egress** leaves the spoke via **`0.0.0.0/0` → hub internal NLB → NAT VMs** — kernel **MASQUERADE** before packets reach the public Internet, independent of CUDN NIC registration semantics.
+
 Every worker in the **candidate pool** (see `spec.nodeSelector` in `BGPRoutingConfig`, excluding infra) participates in BGP so it can:
 
 - **Receive** inbound traffic directly (VPC route points to it as a valid next-hop).
 - **Send** outbound traffic from CUDN pods using learned routes to VPC destinations.
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│                          GCP VPC                                │
-│                                                                 │
-│  ┌──────────┐     ┌──────────────┐     ┌──────────────────────┐ │
-│  │ Echo VM  │     │ Cloud Router │     │  NCC Hub             │ │
-│  │ / other  │     │  ASN 64512   │     │                      │ │
-│  │  hosts   │     │  2 interfaces│◄────┤  Spoke(s): workers   │ │
-│  └────┬─────┘     └──────┬───────┘     └──────────────────────┘ │
-│       │                  │ BGP (2 sessions per worker)           │
-│       │           ┌──────┴───────┐                               │
-│       │           │ VPC Routes   │                               │
-│       │           │ 10.100.0.0/16│                               │
-│       │           │ → worker IPs │                               │
-│       │           └──────────────┘                               │
-├───────┼─────────────────────────────────────────────────────────┤
-│       │           OpenShift Cluster                              │
-│       │                                                          │
-│  ┌────▼─────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐    │
-│  │ Worker 1 │   │ Worker 2 │   │ Worker 3 │   │ Worker N │    │
-│  │ FRR+BGP  │   │ FRR+BGP  │   │ FRR+BGP  │   │ FRR+BGP  │    │
-│  │ canIpFwd │   │ canIpFwd │   │ canIpFwd │   │ canIpFwd │    │
-│  │          │   │  ┌─────┐ │   │          │   │  ┌─────┐ │    │
-│  │          │   │  │Pod A│ │   │          │   │  │Pod B│ │    │
-│  │          │   │  └─────┘ │   │          │   │  └─────┘ │    │
-│  └──────────┘   └──────────┘   └──────────┘   └──────────┘    │
-│                    OVN Overlay (Layer2 CUDN: 10.100.0.0/16)     │
-└──────────────────────────────────────────────────────────────────┘
+                         ┌──────────────────────────────────────┐
+ Hub VPC                  │ NAT MIG ─ ILB ─ Cloud NAT (hub mgr) │
+ (egress tier)            │ VPC peering ◄─────────────────────┼──┐
+                         └──────────────────────────────────────┘  │
+                                      ▲                               │
+                                      │ default route (spoke)         │
+                         ┌────────────┴──────────────────────────────┴─┐
+ Spoke VPC               │ Echo VM │ Cloud Router │ NCC Hub              │
+                         │          │ BGP          │ RA spokes ─ workers │
+                         │          └──────────────┘                      │
+                         │ VPC routes 10.100/16 → worker(s) ECMP       │
+                         ├────────────────────────────────────────────┤
+                         │ OpenShift │ Workers + FRR + CUDN overlay   │
+                         └──────────────────────────────────────────────┘
 ```
 
 ---
@@ -103,8 +107,12 @@ Created once by `terraform apply` in `cluster_bgp_routing/`.
 
 | Resource | Purpose |
 |----------|---------|
+| **Hub VPC** (`modules/osd-hub-vpc`) | Egress subnet, NAT VM MIG, internal NLB VIP, hub Cloud Router NAT (hub subnet only) |
+| **Spoke VPC** (`modules/osd-spoke-vpc`) | Master / worker / optional PSC subnets (OSD-aligned names) |
+| **VPC peerings** (hub ↔ spoke) | Bidirectional custom routes for default route + CUDN propagation |
+| **Static route** (spoke) | `0.0.0.0/0` → hub NLB (`next_hop_ilb`) |
 | **NCC Hub** | Network Connectivity Center hub anchoring the router appliance topology |
-| **Cloud Router** (ASN `64512`) | Learns CUDN routes from workers via BGP; injects into VPC route table |
+| **Cloud Router** (ASN `64512`) | Learns CUDN routes from workers via BGP; injects into **spoke** VPC route table |
 | **Cloud Router Interfaces** (x2) | HA pair (primary + redundant); each worker peers with both |
 | **Interface IP Reservations** (x2) | `google_compute_address` (INTERNAL) preventing IP collisions |
 | **Firewall: worker-subnet-to-cudn** | Allows traffic from VPC subnet to CUDN CIDR |
@@ -156,11 +164,11 @@ Applied by `configure-routing.sh` after cluster creation.
 ### Ingress: VPC Host → CUDN Pod
 
 ```text
-VPC Host (10.0.x.x)
+Spoke VPC host (10.0.x.x)
   │
   │  dst: 10.100.x.x (CUDN pod IP)
   ▼
-VPC Route Table
+Spoke VPC route table
   │  10.100.0.0/16 → Worker N (learned via BGP from Cloud Router)
   ▼
 Worker N (GCE instance, canIpForward=true)
@@ -195,7 +203,7 @@ Worker node host routing table
 Cloud Router
   │
   ▼
-VPC Host (10.0.x.x)
+Spoke VPC host (10.0.x.x)
 ```
 
 The transition from the OVN Layer2 network to the host routing table is the critical step.
@@ -222,6 +230,25 @@ No BGP involvement; works regardless of BGP peering.
 
 Pods on different CUDNs cannot communicate (strict isolation by default).
 Worker host processes (`oc debug node`) also cannot reach CUDN pod IPs.
+
+### Egress: CUDN / host → public Internet (hub NAT)
+
+For **default route** internet traffic, the **spoke** route table sends **`0.0.0.0/0`** to the **hub internal passthrough NLB** (peered). Packets land on a **NAT VM**; **nftables** **MASQUERADE** rewrites the source to the instance’s **ephemeral public** path. This is independent of **Cloud NAT** policies in the spoke and of **CUDN** address registration on the worker NIC.
+
+```text
+CUDN pod (10.100.x) or node
+  → OVN / host
+  → default route 0.0.0.0/0
+  → peered path
+  → hub ILB
+  → NAT VM
+  → MASQUERADE
+  → Internet
+```
+
+### Egress: Spoke → Google APIs (Private Google Access)
+
+**Private Google Access** is enabled on **spoke** master and worker subnets. **Control plane and node** access to `*.googleapis.com` and management paths should use **PGA** and do not need the default-internet path. (If you enable `enable_psc = true`, the **PSC subnet** is created; a full private cluster may require **additional** PSC global resources as in upstream `osd-vpc` — validate for your OCP version.)
 
 ---
 

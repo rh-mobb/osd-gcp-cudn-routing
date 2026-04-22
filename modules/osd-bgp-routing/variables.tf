@@ -90,30 +90,6 @@ variable "reserve_cloud_router_interface_ips" {
   EOT
 }
 
-variable "enable_echo_client_vm" {
-  type        = bool
-  default     = false
-  description = "Create an optional VM running icanhazip-clone for CUDN-to-VM direct IP verification."
-}
-
-variable "echo_client_vm_port" {
-  type        = number
-  default     = 8080
-  description = "Host port for the echo VM HTTP listener (maps to container port 80)."
-}
-
-variable "echo_client_vm_zone" {
-  type        = string
-  default     = null
-  description = "Zone for the echo VM. Required when enable_echo_client_vm is true."
-}
-
-variable "echo_client_vm_machine_type" {
-  type        = string
-  default     = "e2-medium"
-  description = "Machine type for the echo VM."
-}
-
 variable "ncc_spoke_site_to_site_data_transfer" {
   type        = bool
   default     = false

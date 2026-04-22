@@ -40,7 +40,7 @@ help:
 	@echo "  dev           bgp.run + in-cluster operator build; same reminder as create (does not run e2e)"
 	@echo "  destroy       bgp.destroy-operator + bgp.teardown (full stack teardown; all terraform destroy steps use -auto-approve)"
 	@echo ""
-	@echo "  bgp.run       full deploy: WIF, cluster single apply (BGP+NCC+echo VM), oc login, cluster_bgp_routing configure-routing.sh"
+	@echo "  bgp.run       full deploy: WIF, cluster apply (hub VPC + spoke VPC + peering + default route + BGP/NCC/echo VM), oc login, configure-routing.sh"
 	@echo "  bgp.teardown  terraform destroy $(CLUSTER_BGP_DIR)/ then $(WIF_DIR)/ (-auto-approve); run bgp.destroy-operator first if you used the in-cluster operator"
 	@echo "  bgp.e2e       CUDN pod ↔ echo VM checks ($(CLUSTER_BGP_DIR)/; requires oc + gcloud logged in)"
 	@echo "  bgp.phase1-baseline  fix-bgp-ra Phase 1: router nodes, RA nodeSelector, FRR CRs, debug-gcp-bgp (oc + terraform + gcloud)"
@@ -48,7 +48,7 @@ help:
 	@echo "  bgp.destroy-operator   Delete BGPRoutingConfig (finalizer cleanup), operator resources, CRDs, then IAM terraform destroy"
 	@echo ""
 	@echo "  virt.deploy            Hyperdisk pool + StorageClass + VolumeSnapshotClass, then OpenShift Virtualization (CNV)"
-	@echo "  virt.destroy-storage   PVCs/snapshots/CDI cleanup, then SC/VSC + standard-csi default; GCP disks in pool + Hyperdisk pool (virt_storage_zone; fallback: all worker zones)"
+	@echo "  virt.destroy-storage   All KubeVirt VMs first, then PVCs/snapshots/CDI, SC/VSC + standard-csi default; GCP disks in pool + Hyperdisk pool (virt_storage_zone; fallback: all worker zones)"
 	@echo "  virt.e2e               Deploy virt-e2e VMs + virtctl console/ssh hints (default); add --run-tests for full e2e (see scripts/README.md)"
 	@echo ""
 	@echo "  operator.build         Compile the operator binary (go build under $(OPERATOR_DIR)/)"
@@ -69,13 +69,10 @@ help:
 	@echo "  wif.destroy   terraform destroy -auto-approve in $(WIF_DIR)/ (after cluster destroy)"
 	@echo "  wif.undelete-soft-deleted-roles  Undelete soft-deleted WIF custom roles (reads wif_config/ Terraform + gcloud; optional WIF_UNDELETE_ARGS; see scripts/README.md)"
 	@echo ""
-	@echo "  init          terraform init -upgrade in $(CLUSTER_BGP_DIR)/ (same root as bgp.init)"
-	@echo "  plan          terraform plan in $(CLUSTER_BGP_DIR)/"
-	@echo "  apply         terraform apply in $(CLUSTER_BGP_DIR)/"
-	@echo "  cluster.destroy  terraform destroy -auto-approve in $(CLUSTER_BGP_DIR)/ only (expert; not WIF / IAM)"
 	@echo "  bgp.init      terraform init -upgrade in $(CLUSTER_BGP_DIR)/"
 	@echo "  bgp.plan      terraform plan in $(CLUSTER_BGP_DIR)/"
 	@echo "  bgp.apply     terraform apply in $(CLUSTER_BGP_DIR)/"
+	@echo "  cluster.destroy  terraform destroy -auto-approve in $(CLUSTER_BGP_DIR)/ only (expert; not WIF / IAM)"
 	@echo "  fmt           terraform fmt -recursive"
 	@echo "  validate      terraform validate ($(WIF_DIR)/, modules, $(CLUSTER_BGP_DIR)/, $(IAM_DIR)/)"
 	@echo "  clean         remove .terraform/ and lock files under repo"
@@ -177,23 +174,7 @@ wif.destroy: wif.init
 wif.undelete-soft-deleted-roles:
 	@bash "$(CURDIR)/scripts/gcp-undelete-wif-custom-roles.sh" $(WIF_UNDELETE_ARGS)
 
-.PHONY: init
-init:
-	@cd $(CLUSTER_BGP_DIR) && terraform init -upgrade
-
-.PHONY: plan
-plan: init
-	@cd $(CLUSTER_BGP_DIR) && terraform plan $(TF_VARS) $(EXTRA_TF_VARS)
-
-.PHONY: apply
-apply: init
-	@cd $(CLUSTER_BGP_DIR) && terraform apply $(TF_VARS) $(EXTRA_TF_VARS)
-
-.PHONY: cluster.destroy
-cluster.destroy: init
-	@cd $(CLUSTER_BGP_DIR) && terraform destroy -auto-approve $(TF_VARS) $(EXTRA_TF_VARS)
-
-.PHONY: bgp.init bgp.plan bgp.apply
+.PHONY: bgp.init bgp.plan bgp.apply cluster.destroy
 bgp.init:
 	@cd $(CLUSTER_BGP_DIR) && terraform init -upgrade
 
@@ -202,6 +183,9 @@ bgp.plan: bgp.init
 
 bgp.apply: bgp.init
 	@cd $(CLUSTER_BGP_DIR) && terraform apply $(TF_VARS) $(EXTRA_TF_VARS)
+
+cluster.destroy: bgp.init
+	@cd $(CLUSTER_BGP_DIR) && terraform destroy -auto-approve $(TF_VARS) $(EXTRA_TF_VARS)
 
 # ---- Operator (CRD-based) targets ----
 .PHONY: operator.build operator.test operator.generate operator.manifests operator.docker-build

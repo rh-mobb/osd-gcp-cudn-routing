@@ -20,6 +20,21 @@ openshift_version = "4.21.3"
 # GCP region
 gcp_region = "us-central1"
 
+# Hub + spoke VPCs (reference stack default). Must not overlap each other or CUDN CIDR.
+# hub_vpc_cidr                = "10.20.0.0/16"
+# control_plane_subnet_cidr   = "10.0.0.0/19"
+# compute_subnet_cidr         = "10.0.32.0/19"
+
+# Hub NAT VMs / internal NLB (defaults usually fine)
+# nat_vm_machine_type          = "e2-medium"
+# nat_vm_zone_limit              = 3
+# nat_ilb_host_offset            = 5
+# nat_health_check_port          = 8080
+# nat_healing_initial_delay_sec  = 180
+# spoke_default_route_priority   = 800
+# nat_enable_iap_ssh             = true   # set false in hardened environments
+# spoke_enable_iap_ssh           = true   # set false in hardened environments
+
 # Default OSD worker pool machine type (OCM catalog)
 # compute_machine_type = "n2-standard-4"
 
@@ -65,13 +80,14 @@ gcp_region = "us-central1"
 # ncc_spoke_site_to_site_data_transfer = false
 
 # Optional echo VM (requires enable_bgp_routing=true)
-# enable_echo_client_vm = false
+# enable_echo_vm = false
 # echo_client_vm_zone = null
 # echo_client_vm_port = 8080
 # echo_client_vm_machine_type = "e2-medium"
 
-# Enable PSC for private cluster
+# Enable PSC for private cluster (requires psc_subnet_cidr when true)
 # enable_psc = false
+# psc_subnet_cidr = "10.0.64.0/29"
 
 # GCP authentication: use Application Default Credentials
 # gcloud auth application-default login

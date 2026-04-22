@@ -2,6 +2,29 @@
 
 What we know (verified) and what we think (unverified) about BGP-based CUDN routing for managed OpenShift clusters on cloud providers.
 
+## How this file fits with other documentation
+
+| Document | Role |
+|----------|------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Curated architecture and design rationale for this repository. |
+| [README.md](README.md), module READMEs, `docs/` | How to deploy, operate, and use the project. |
+| **This file (`KNOWLEDGE.md`)** | Durable record of **facts**, **assumptions**, and **open questions**, with **confidence scores**, so humans and agents retain context across sessions. |
+
+Do **not** replace architecture or user docs with this file. Do use it to capture evidence, uncertainty, and reasoning that are too granular or volatile for `ARCHITECTURE.md`, and to record what was learned so the next contributor does not rediscover it from scratch.
+
+### Confidence scores
+
+Attach a **confidence percentage** (or upgrade text to **Verified Facts** when evidence is strong enough). Rough bands:
+
+| Range | Meaning |
+|-------|---------|
+| **95–100%** | Verified: reproducible test, vendor doc, upstream source, or code proof—cite the source. |
+| **70–94%** | Strong inference or partial validation; say what would increase confidence. |
+| **40–69%** | Working hypothesis; note how to falsify or confirm. |
+| **Under 40%** | Speculative; still worth recording if it affects design or debugging. |
+
+When an item is settled, mark it **RESOLVED** (as elsewhere in this file) or move it into **Verified Facts** and trim duplicate hypothesis text.
+
 ---
 
 ## Verified Facts
@@ -53,6 +76,33 @@ These are merged by MetalLB/FRR admission.
 The workaround is `disable-connected-check` in `spec.raw` FRR config.
 - **EgressIP advertisement from a Layer2 CUDN is not supported.**
 OCP 4.21 Advanced Networking guide: *"Advertising EgressIPs from a user-defined network (CUDN) operating in layer 2 mode are not supported."*
+- **Bridge/l2bridge VMs on a primary Layer2 UDN have no internet egress; masquerade VMs do.** Confidence: high — verified in production April 2026.
+A `bridge: {}` VM on the primary UDN gets a CUDN IP (e.g. `10.100.x.x`) that is directly routable within the VPC and peered networks via BGP-advertised routes, but OVN-K does **not** SNAT that IP for external destinations. GCP has no route back for replies from `8.8.8.8` or any public address. A `masquerade: {}` VM is SNAT'd through the worker node's primary VPC IP, so internet egress works. This is expected: CUDN is designed for stable in-cluster/VPC-routable IPs, not internet egress.
+  **Update (April 2026):** Both bridge and masquerade VMs reach the internet via the hub NAT path with 0% packet loss once the missing spoke VPC return-path firewall rule was added (see below). MTR from both VMs shows 0% loss direct to icanhazip.com (104.16.185.241) confirming reliable end-to-end egress.
+
+- **The spoke VPC must allow inbound from the hub egress subnet for CUDN internet egress return traffic.** Verified in production April 2026.
+  The spoke VPC firewall had no rule allowing traffic from the hub egress subnet (`10.20.0.0/24`). This caused the hub NAT VMs to successfully masquerade outbound CUDN traffic to the internet, but the return SYN-ACK/reply packets (routed back via `0.0.0.0/0` peering → spoke VPC → Cloud Router ECMP → worker node) were silently dropped at the GCP firewall on the spoke worker. Symptoms: CUDN internet access worked intermittently (~10% of attempts) because GCP's stateful firewall only allowed return packets on the exact node whose outbound flow created the state; with 10-way Cloud Router ECMP, the return landed on the "right" node only ~1 in 10 times. Fix: add a spoke VPC firewall rule allowing all protocols from the hub egress CIDR to all spoke instances. After adding the rule, all 3 hub NAT VMs could ping all CUDN addresses (0% loss) and internet egress became reliable.
+
+- **CUDN internet egress is fundamentally ECMP-unreliable with the BGP hub/spoke architecture. No workaround is available in OCP 4.21 on GCP.** Verified in production April 2026.
+  Root cause: CUDN pods route all egress (including internet) via `ovn-udn1` (the secondary OVN interface, `default via 10.100.0.1 dev ovn-udn1`). RouteAdvertisements preserves the CUDN pod IP for external destinations (no SNAT by OVN-K). The hub NAT VM masquerades outbound traffic and DNATs return packets back to the CUDN pod IP (`10.100.0.x`). These return packets then enter the spoke VPC and hit Cloud Router ECMP (10 paths: 5 workers × 2 BGP peers), landing on a random worker. OVN-K's conntrack state for the outbound connection is **node-local** — only the originating worker can process the return. On any other worker, OVN-K sees an internet-sourced packet with no conntrack state and drops it. Result: ~2/10 connections succeed. The same problem exists with single-VPC + Cloud NAT + BGP — Cloud NAT DNATs to the CUDN IP which also hits Cloud Router ECMP. VPC-to-CUDN connectivity is unaffected (return traffic from VPC IPs is allowed by OVN-K on any node via Geneve forwarding).
+  **Workarounds investigated and ruled out:**
+  - `routingViaHost: true`: CUDN egress goes through `ovn-udn1` (OVN pipeline), not the primary `eth0`. Host nftables is never invoked for CUDN traffic. Enabling this setting also broke CUDN routing entirely by reconfiguring OVN gateway routers. Tested and reverted April 2026.
+  - Host nftables DaemonSet: Cannot intercept traffic in the OVS pipeline path (`ovn-udn1 → OVN GR → br-ex`). Ruled out.
+  - EgressIP for Layer2 UDN on GCP: Broken on /32-per-node platforms (OCPBUGS-48301). Not available in OCP 4.21.
+  - AdminPolicyBasedExternalRoute: Operates on the default (primary) pod network only. Does not affect CUDN secondary interface traffic.
+  **Would single-VPC ILB solve it?** Unknown — never tested. The archived `cluster_ilb_routing` e2e tests only covered VPC-to-pod inbound (echo VM ↔ CUDN pod). Internet egress from CUDN pods was not exercised in the ILB PoC. The same fundamental issues would likely apply: Cloud NAT may not apply to CUDN overlay IPs (src=`10.100.0.x` is not a VM subnet IP), and if it does, the return packet still carries an internet source IP and must be delivered to `10.100.0.x` via the VPC route (`next_hop_ilb` → ILB → random worker → same OVN-K ct.est problem).
+  **Future fix:** OKEP-5094 (Layer2TransitRouter) introduces EgressIP support for Layer2 primary UDN via a transit router topology. PRs merged upstream Sept–Nov 2025; targeted for OCP 4.22 (not yet GA, April 2026). This would allow assigning an EgressIP to the CUDN namespace, pinning egress to a designated node with stable conntrack state. Availability on OSD/GCP is not confirmed.
+  **Practical guidance:** Use `masquerade` binding for KubeVirt VMs that require internet egress. Reserve CUDN for intra-cluster and VPC-to-pod connectivity where stable pod IPs are needed.
+  Codified in `modules/osd-spoke-vpc` as `google_compute_firewall.hub_to_spoke_return`, enabled via the `hub_egress_cidr` variable.
+
+- **The ECMP + OVN-K conntrack failure is specific to internet-sourced return IPs and does not affect RFC-1918 / private-range traffic.** Verified in production April 2026.
+  The failure mode is not NAT itself — it is the **public internet source IP** that the hub NAT VM DNAT preserves on the return packet (`src=8.8.8.8, dst=10.100.0.4`). OVN-K's CUDN ACL rejects new connections from public internet IPs on workers that lack local conntrack state for that flow.
+  By contrast, OVN-K allows new inbound connections from RFC-1918 / VPC-range source IPs on any worker and Geneve-forwards to the correct pod. Evidence: the echo VM curl test (CUDN pod → VPC host → return from `10.0.32.2`) worked 100% reliably, even though the return also traverses Cloud Router ECMP to a random worker.
+  **Implication:** The following traffic patterns are reliable regardless of ECMP:
+  - Inbound from VPC hosts, peered VPCs, on-premises via VPN/Interconnect — all use RFC-1918 source IPs ✓
+  - CUDN pod → VPC/on-prem → return (no internet NAT) — return src is RFC-1918 ✓
+  - Any flow where the source IP at the spoke VPC ingress is a private/RFC-1918 address ✓
+  The failure is unique to: CUDN pod → internet → hub NAT VM masquerades → DNAT returns with `src=8.8.8.8` → internet public IP hits OVN-K on the wrong worker.
 - **Multiple External Gateways (MEG) are not supported with route advertisements.**
 OCP 4.21 Advanced Networking guide: *"MEG is not supported with this feature."*
 - **CUDN names should be 15 characters or fewer** for VRF device name matching in FRR.
@@ -90,6 +140,18 @@ Reserved with `google_compute_address` (INTERNAL/GCE_ENDPOINT) by default.
 - **`canIpForward` must be enabled on a GCE instance before it can be added to an NCC spoke as a router appliance.**
 The API rejects spoke creation/update if any linked instance has `canIpForward=false`.
 - **Cloud Router ASN must be in the RFC 6996 private range** (default `64512`); `frr_asn` defaults to `65003`.
+
+### GCP CUDN egress, Cloud NAT, and overlay source addresses
+
+- **Cloud NAT matches outbound packets on source IP registration, not only on NAT policy scope.**
+For a packet to be NATed, the **source IP must be assigned to that VM’s network interface** in GCP’s model (primary internal IP or **alias IP** taken from a **secondary IP range defined on the subnet**).
+Addresses that only exist in the OVN/CUDN overlay but are **not** registered on the NIC are **not** translated; they are dropped by Cloud NAT.
+Reasoning: Cloud NAT allocates translation in the context of subnets and VM addressing ([addresses and ports](https://cloud.google.com/nat/docs/ports-and-addresses), [overview](https://cloud.google.com/nat/docs/overview)); overlay-only sources fall outside “normal” Compute subnet/NIC assignment unless separately registered ([`archive/docs/nat-gateway.md`](archive/docs/nat-gateway.md)).
+**Confidence: 95%** (vendor model + on-cluster behavior described in-repo).
+- **Greenfield `cluster_bgp_routing` uses a hub VPC (NAT VMs + internal NLB) and a spoke VPC (OpenShift + BGP).** The spoke installs **`0.0.0.0/0` → `next_hop_ilb`** to the hub ILB over **VPC peering**; **Linux MASQUERADE** on hub NAT VMs rewrites sources before the public Internet, **without** tag-scoped static routes on workers. See [ARCHITECTURE.md](ARCHITECTURE.md) and modules [`osd-hub-vpc`](modules/osd-hub-vpc/) / [`osd-spoke-vpc`](modules/osd-spoke-vpc/).
+- **`depends_on` on a Terraform module defers all data sources inside that module to apply-time, not just its outputs.** In `cluster_bgp_routing/main.tf`, adding `depends_on = [module.spoke, ...]` to `module "cluster"` caused `data.osdgoogle_wif_config.wif` (inside `osd-cluster`) to be evaluated only after apply, making its attributes (`service_accounts`, `support`) unknown at plan time and breaking `for_each` in `osd-wif-gcp`. **Fix:** remove `depends_on` from `module "cluster"`; pass `module.spoke.vpc_name` / subnet names directly — these are user-set `.name` attributes (known at plan) that create the implicit ordering dependency. **Confidence: 100%** (confirmed by error + fix in this session).
+- **`nftables.service` on CentOS Stream 9 / RHEL 9 loads `/etc/sysconfig/nftables.conf`, not `/etc/nftables.conf`.** A startup script that writes MASQUERADE rules to `/etc/nftables.conf` and calls `systemctl enable --now nftables` will produce a healthy-looking service with an empty ruleset — forwarding works at the kernel level (`ip_forward=1`) but no NAT translation occurs, so spoke traffic exits the NAT VMs without source rewrite and is dropped by the internet. Fix: write to `/etc/sysconfig/nftables.conf` and apply immediately with `nft -f /etc/sysconfig/nftables.conf`. Confirmed via `sudo nft list ruleset` (empty) vs `cat /etc/nftables.conf` (rules present) on running MIG instances. **Confidence: 100%** (root-caused in production, April 2026).
+- **`google_compute_route` with `next_hop_ilb` across a VPC peering must use the forwarding rule's IP address, not its `self_link`.** Using `self_link` causes the GCP API to reject the route at apply time with `Next hop Ilb is not on the route's network` even when both peerings exist with `export_custom_routes = true` / `import_custom_routes = true`. Using `google_compute_forwarding_rule.foo.ip_address` (or the reserved `google_compute_address.foo.address`) succeeds. The route must also `depends_on` both peering resources. Source: official [Terraform `google_compute_route` documentation](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/compute_route) cross-VPC peering example. **Confidence: 100%** (reproduced error with `self_link`, confirmed fix with `ip_address` in production, April 2026).
 
 ### AWS-Specific (VPC Route Server)
 
@@ -246,6 +308,23 @@ GCP: enabled via GCE API (`InstancesClient.update()`) in the controller reconcil
 Lifecycle difference: the GCP controller actively reconciles; the AWS DaemonSet is passive (runs on each new node).
 Remaining 10%: GCP `canIpForward` is a VM-level property (all interfaces), while AWS src/dst check is per-ENI.
 
+### GCP CUDN egress — secondary ranges, alias IPs, and BGP
+
+- **Hypothesis: declaring the CUDN prefix in the VPC (secondary range on the worker subnet, extra subnet, or equivalent) so Cloud NAT will accept sources in that prefix collides with dynamic routing for the same or overlapping prefix. — 85%**
+Reasoning: subnet secondary ranges and subnet primary ranges install **VPC-local “connected” semantics** for that CIDR; BGP from Cloud Router/NCC may advertise the same prefix for reachability elsewhere. Longest-prefix and local vs dynamic route precedence can **override or diverge** from the intended BGP path independent of NAT policy.
+**What would raise confidence:** explicit LPM table capture in a test VPC with overlapping BGP + secondary range.
+- **Hypothesis: using alias IPs instead of a “secondary subnet” does not remove that tradeoff. — 90%**
+GCP alias addresses are allocated **from** a secondary range **defined on the subnet**; you still introduce the CUDN space (or a contained range) as a formal VPC/subnet range to make sources “legal” for Cloud NAT.
+**What would falsify:** a supported pattern where alias IPs are registered without any overlapping subnet CIDR declaration (not expected on standard VPC).
+- **RESOLVED (in-repo, greenfield):** A **dedicated Linux NAT hop** in a **separate hub VPC** (see [`modules/osd-hub-vpc`](modules/osd-hub-vpc/)) implements MASQUERADE; the single-VPC + tag-scoped route design in [`archive/docs/nat-gateway.md`](archive/docs/nat-gateway.md) is **superseded** for this stack. **— 99%** (Terraform modules + [ARCHITECTURE.md](ARCHITECTURE.md)).
+
+### OSD on GCP — network tags vs labels for VPC routes
+
+- **Hypothesis: OSD-managed clusters may not expose a supported, durable way to set GCP `networkTags` on every worker that needs a tag-scoped static route. — 70%** (unchanged for the *tag API* story)
+OSD and installer flows emphasize **labels** for organization and Kubernetes; **GCP network tags** are separate fields on the GCE instance resource and are what [`google_compute_route`](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/compute_route) `tags` reference.
+**Mitigation in this repo (greenfield):** the **default-internet** path does **not** use `tags` on the route — NAT lives in the **hub** VPC, so workers in the **spoke** do not need `nat-client` for a same-VPC **0/0** + ILB loop. **— 90%** (by design; not a product change to OSD label vs tag mapping).
+**What would still increase confidence:** documented OSD/API support for Machine pool → GCE network tags for *other* firewall use cases.
+
 ### Operational
 
 - **Peering all workers does not create excessive BGP churn during cluster scaling or upgrades. — 75%**
@@ -307,19 +386,26 @@ The customer moved to a simpler architecture.
 **Deprioritized.**
 
 9. **Does our non-VRF Layer2 CUDN topology require `routingViaHost=true`?**
-The OCP 4.21 Advanced Networking guide describes a VRF-lite CUDN pattern that uses `routingViaHost: true` in the Network operator config.
-Our deployment does **not** use VRF-based CUDNs — we use a simple Layer2 topology.
-It is unclear whether `routingViaHost` is required for the OVN Layer2TransitRouter to correctly bridge CUDN egress traffic to the host routing table (and thus to FRR-learned routes).
-If it is **not** needed, our current setup should work.
-If it **is** needed, egress from CUDN pods may silently fail (or may work only by coincidence with the default routing path).
-**Action required**: test egress from CUDN pods to VPC destinations with and without `routingViaHost`, or find definitive documentation for the non-VRF case.
-Confidence that it is **not** needed for our case: **55%** (uncertain).
+
+**RESOLVED (April 2026):** `routingViaHost: true` is **not required and must not be used** for the CUDN Layer2 topology on OSD/GCP. Tested in production:
+
+- CUDN pods route all traffic via `ovn-udn1` (the secondary OVN interface), not the primary `eth0`. The pod's default route is `default via 10.100.0.1 dev ovn-udn1`, meaning all egress — including internet traffic — goes through the OVN pipeline, completely bypassing the host kernel IP stack.
+- Setting `routingViaHost: true` reconfigures the OVN gateway routers for **all** networks (including the CUDN GR). This broke all CUDN pod connectivity (even intra-VPC pings to hub NAT VMs), not just internet egress.
+- The change triggers a cluster-wide rolling restart of `ovnkube-node` pods and must be reverted to restore CUDN routing.
+- **Implication for host-level SNAT:** Because CUDN egress goes entirely through `ovn-udn1 → OVN pipeline → OVN GR → br-ex`, host nftables/iptables POSTROUTING rules are **never triggered** for CUDN pod traffic. A node-level SNAT DaemonSet (nftables MASQUERADE) cannot intercept or modify CUDN pod egress.
+
+Confidence: **verified in production April 2026**.
 
 10. **Is OVN overlay forwarding reliable for CUDN inbound traffic arriving via ECMP at the "wrong" worker?**
 With all workers as BGP peers and ECMP, `(N-1)/N` of flows arrive at a worker that does not host the target pod.
 That worker must forward the packet through the OVN Layer2 overlay to the correct node.
 Whether this cross-node forwarding path is reliably configured for externally-sourced traffic entering via the host network stack is not confirmed.
 Confidence it works: **75%** (Layer2 broadcast domain should handle it, but untested for this exact ingress path).
+
+**RESOLVED (April 2026):** OVN overlay forwarding for CUDN inbound traffic works correctly. However, the root cause of intermittent CUDN internet egress is **Cloud Router ECMP + OVN-K node-local conntrack**. Full root cause documented in Verified Facts below.
+
+11. **Can tag-scoped default routes (e.g. NAT gateway ILB next hop) be made operational on OSD-GCP without per-VM network tags?**
+**Greenfield mitigation:** hub VPC NAT + spoke **`0.0.0.0/0` → hub ILB** via peering avoids tag-scoped routes on workers ([ARCHITECTURE.md](ARCHITECTURE.md)). Same-VPC NAT patterns that relied on **`nat-client`** tags remain a concern if reused elsewhere.
 
 ---
 
@@ -342,3 +428,4 @@ Confidence it works: **75%** (Layer2 broadcast domain should handle it, but unte
 | [openshift/installer#4884](https://github.com/openshift/installer/issues/4884) | GitHub issue | `canIpForward` default disabled on GCP, no installer config |
 | OCP 4.21 Advanced Networking guide (PDF, 2026-03-30) | Red Hat docs | RouteAdvertisements constraints, FRR-K8s behavior, BGP bare-metal-only statement, EgressIP limitations |
 | OCP 4.21 Virtualization guide (PDF, 2026-03-30) | Red Hat docs | Layer2 UDN for VMs, persistent IPAM for live migration, GCP GA, masquerade interruption during migration |
+| [`archive/docs/nat-gateway.md`](archive/docs/nat-gateway.md) | In-repo plan | CUDN egress vs Cloud NIC registration, OVN-K EgressIP gap on GR node, ILB + MASQUERADE workaround; tag-scoped routes vs OSD constraints |

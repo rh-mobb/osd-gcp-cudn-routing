@@ -1,6 +1,6 @@
 # Reference deployment: `cluster_bgp_routing`
 
-Root Terraform stack for **BGP-based CUDN routing**: composes Git-sourced **`osd-vpc`** and **`osd-cluster`** with local [**`modules/osd-bgp-routing`**](../modules/osd-bgp-routing/README.md) (NCC hub + Cloud Router + interfaces + firewalls).
+Root Terraform stack for **BGP-based CUDN routing**: composes local [**`modules/osd-hub-vpc`**](../modules/osd-hub-vpc/README.md) (NAT tier + NLB), [**`modules/osd-spoke-vpc`**](../modules/osd-spoke-vpc/README.md) (OpenShift subnets), VPC peering, **`0.0.0.0/0` → hub NLB**, Git-sourced **`osd-cluster`**, and local [**`modules/osd-bgp-routing`**](../modules/osd-bgp-routing/README.md) (NCC hub + Cloud Router + interfaces + firewalls in the **spoke** VPC).
 
 The [**operator**](../operator/README.md) (`routing.osd.redhat.com/v1alpha1`) owns the **dynamic** resources: NCC spoke, Cloud Router BGP peers, `canIpForward`, and `FRRConfiguration` CRs.
 
@@ -69,14 +69,14 @@ If **ping** from the VM fails but **curl** works, ICMP may be blocked—use **`c
 
 ## Architecture (summary)
 
-1. **Terraform** creates the **static** infrastructure: NCC hub, Cloud Router with 2 interfaces (HA pair), firewalls.
+1. **Terraform** creates **hub + spoke VPCs**, **peering**, **default route** to the hub NAT ILB, then the **static** BGP infrastructure in the spoke: NCC hub, Cloud Router with 2 interfaces (HA pair), firewalls.
 2. The **operator** uses **all non-infra** workers matching the candidate selector (default: `node-role.kubernetes.io/worker`), labels them **`routing.osd.redhat.com/bgp-router`**, sets node **annotations** after GCP updates (**`routing.osd.redhat.com/gcp-can-ip-forward`**, **`routing.osd.redhat.com/gcp-nested-virtualization`** when enabled), and manages the **dynamic** resources: NCC spoke (router appliance instances), Cloud Router BGP peers (2 per worker), `canIpForward` on those GCE instances, and `FRRConfiguration` CRs.
 3. Those **router** nodes run **FRR** and advertise CUDN prefixes; the VPC learns **`cudn_cidr`** via BGP.
 4. **OVN** and **RouteAdvertisements** match the ILB stack: **conditional SNAT** on the CUDN. With **`advertisements: [PodNetwork]`**, OVN-K admission requires **`spec.nodeSelector: {}`** — you cannot narrow RA to **`bgp-router`** nodes only ([references/fix-bgp-ra.md](../references/fix-bgp-ra.md) Phase 2).
 
 **Cloud Router ASN:** default **`64512`** (RFC 6996 private ASN — required by the Terraform provider for **`google_compute_router`**). **`frr_asn`** defaults to **`65003`**; both are outputs consumed by the operator.
 
-Diagram and resource tables: [archive/ILB-vs-BGP.md](../archive/ILB-vs-BGP.md) (**Approach B**).
+Hub/spoke VPC narrative and tables: [ARCHITECTURE.md](../ARCHITECTURE.md). ILB-vs-BGP comparison (Approach B): [archive/ILB-vs-BGP.md](../archive/ILB-vs-BGP.md).
 
 ---
 

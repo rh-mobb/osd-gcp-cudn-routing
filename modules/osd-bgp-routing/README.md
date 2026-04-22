@@ -15,7 +15,7 @@ module "bgp_routing" {
   project_id   = "my-project"
   region       = "us-central1"
   cluster_name = "my-cluster"
-  vpc_id       = module.osd_vpc.vpc_id
+  vpc_id       = module.spoke.vpc_id
   subnet_id    = "projects/my-project/regions/us-central1/subnetworks/my-cluster-worker-subnet"
   cudn_cidr    = "10.100.0.0/16"
 

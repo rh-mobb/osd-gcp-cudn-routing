@@ -1,3 +1,18 @@
+output "hub_vpc_name" {
+  value       = module.hub.hub_vpc_name
+  description = "Hub VPC name (NAT / egress tier)"
+}
+
+output "hub_nat_ilb_ip" {
+  value       = module.hub.nat_ilb_ip
+  description = "Internal IPv4 of the hub NAT internal load balancer"
+}
+
+output "spoke_vpc_name" {
+  value       = module.spoke.vpc_name
+  description = "Spoke VPC name hosting the OSD cluster"
+}
+
 output "gcp_project_id" {
   value       = var.gcp_project_id
   description = "GCP project ID"
@@ -107,21 +122,21 @@ output "ncc_spoke_site_to_site_data_transfer" {
 }
 
 output "echo_client_http_url" {
-  value       = length(module.bgp_routing) > 0 ? module.bgp_routing[0].echo_client_http_url : null
-  description = "HTTP URL for curl from CUDN pods (null when enable_echo_client_vm is false)"
+  value       = var.enable_echo_vm ? "http://${google_compute_instance.echo_client[0].network_interface[0].network_ip}:${var.echo_client_vm_port}/" : null
+  description = "HTTP URL for curl from CUDN pods (null when enable_echo_vm is false)"
 }
 
 output "echo_client_vm_internal_ip" {
-  value       = length(module.bgp_routing) > 0 ? module.bgp_routing[0].echo_client_vm_internal_ip : null
-  description = "Internal IPv4 of the echo VM (null when enable_echo_client_vm is false)"
+  value       = var.enable_echo_vm ? google_compute_instance.echo_client[0].network_interface[0].network_ip : null
+  description = "Internal IPv4 of the echo VM (null when enable_echo_vm is false)"
 }
 
 output "echo_client_vm_zone" {
-  value       = length(module.bgp_routing) > 0 ? module.bgp_routing[0].echo_client_vm_zone : null
-  description = "Zone of the echo VM (null when enable_echo_client_vm is false)"
+  value       = var.enable_echo_vm ? local.echo_vm_zone : null
+  description = "Zone of the echo VM (null when enable_echo_vm is false)"
 }
 
 output "echo_client_vm_external_ip" {
-  value       = length(module.bgp_routing) > 0 ? module.bgp_routing[0].echo_client_vm_external_ip : null
-  description = "External IPv4 of the echo VM (null when enable_echo_client_vm is false)"
+  value       = null
+  description = "Always null: echo VM has no external IP; use gcloud compute ssh --tunnel-through-iap"
 }

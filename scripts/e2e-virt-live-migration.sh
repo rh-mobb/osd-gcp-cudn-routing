@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Virt live-migration e2e: one CentOS Stream 9 VirtualMachine (DataSource + DataVolume + cloud-init),
+# Virt live-migration e2e: two CentOS Stream 9 VirtualMachines (DataSource + DataVolume + cloud-init),
 # icanhazip-clone in-guest on :8080, probes from netshoot-cudn, live migrate + ping/curl.
 # Same manifest style as a hand-written VM (e.g. rh-mobb/rosa-bgp test-vm-cudn.yaml) but with the
 # openshift-virtualization DataSource boot disk instead of containerDisk.
@@ -9,9 +9,9 @@
 #
 # Idempotent: oc apply for VMs (stable names + label). Creates CLUSTER_DIR/.virt-e2e/id_ed25519[.pub] for
 # cloud-init: user/password + chpasswd (Virt UI), ssh_authorized_keys, packages (podman), short runcmd (icanhazip).
-# Network binding: bridge {} (l2bridge) — the only supported binding for primary UDN namespaces per OKD docs.
-# Masquerade is explicitly NOT supported with primary UDN (kubevirt.io/user-guide: "Masquerade is only
-# allowed to connect to the pod network").
+# Two VMs on the default pod network for side-by-side console comparison:
+#   VIRT_E2E_VM_NAME_BRIDGE (bridge: {} / l2bridge) and VIRT_E2E_VM_NAME_MASQ (masquerade: {} / SNAT).
+# VIRT_E2E_VM_NAME / --vm-name selects which VM runs live migrations and netshoot probes.
 # Default: VIRT_E2E_SKIP_TESTS=1 — no netshoot/migrations; use --run-tests for full e2e.
 # virtctl console (primary UDN namespaces: virtctl ssh unsupported).
 # --cleanup removes all virt-e2e VMs (label) + labeled migration CRs (not .virt-e2e keys/password file).
@@ -23,6 +23,7 @@ DEPLOY_PODS="$SCRIPT_DIR/deploy-cudn-test-pods.sh"
 NAMESPACE="${CUDN_NAMESPACE:-cudn1}"
 CLUSTER_DIR=""
 : "${VIRT_E2E_VM_NAME_BRIDGE:=virt-e2e-bridge}"
+: "${VIRT_E2E_VM_NAME_MASQ:=virt-e2e-masq}"
 # Which VM to use for migrations + HTTP/ping probes.
 VM_NAME="${VIRT_E2E_VM_NAME:-${VIRT_E2E_VM_NAME_BRIDGE}}"
 # Boot disk: cluster DataSource (same family as openshift/centos-stream9-server-small template).
@@ -109,15 +110,16 @@ verbose_run() {
 
 usage() {
   cat <<EOF
-Virt e2e: one VirtualMachine (l2bridge / bridge binding — only supported binding for primary UDN namespaces).
-Default mode: deploy + virtctl console/ssh hints only.
+Virt e2e: two VirtualMachines on the default pod network for side-by-side console comparison:
+  VIRT_E2E_VM_NAME_BRIDGE (bridge: {} / l2bridge) and VIRT_E2E_VM_NAME_MASQ (masquerade: {} / SNAT).
+Default mode: deploy both VMs + print virtctl console/ssh for each.
 
 Usage: $(basename "$0") [options]
 
   -C, --cluster-dir DIR     Terraform stack (for cudn_cidr / cudn-pod-ip.sh); default PWD
   -n, --namespace NS        CUDN namespace (default: cudn1 or CUDN_NAMESPACE)
       --vm-name NAME        VM to migrate + probe when --run-tests (default: virt-e2e-bridge or VIRT_E2E_VM_NAME)
-      --skip-tests            Deploy VM and print access commands only (default; same as VIRT_E2E_SKIP_TESTS=1)
+      --skip-tests            Deploy VMs and print access commands only (default; same as VIRT_E2E_SKIP_TESTS=1)
       --run-tests             Full e2e: netshoot, HTTP/ping/curl, live migrations (VIRT_E2E_SKIP_TESTS=0)
       --timeout DUR         deploy-cudn-test-pods wait (default: 600s)
       --skip-deploy         Do not run deploy-cudn-test-pods (netshoot must be Ready)
@@ -131,8 +133,9 @@ Usage: $(basename "$0") [options]
 Env: VIRT_E2E_CLEANUP=1 same as --cleanup.
      VIRT_E2E_SKIP_TESTS: 1 (default) = no netshoot/migration/ping/curl; 0 or --run-tests = full e2e.
      CUDN_E2E_HTTP_* for curl retries (full e2e only).
-     VIRT_E2E_VM_NAME_BRIDGE: VM name (default: virt-e2e-bridge).
-     VIRT_E2E_VM_NAME: migration + ping/curl target (default: virt-e2e-bridge).
+     VIRT_E2E_VM_NAME_BRIDGE: bridge VM name (default: virt-e2e-bridge).
+     VIRT_E2E_VM_NAME_MASQ: masquerade VM name (default: virt-e2e-masq).
+     VIRT_E2E_VM_NAME: migration + ping/curl target (default: virt-e2e-bridge; also accepts virt-e2e-masq).
      VIRT_E2E_CUDN_NETWORK_NAME: unused for interface spec; optional hint for IP selection vs Terraform cudn_cidr.
      VIRT_E2E_BOOT_DATASOURCE_NAME / VIRT_E2E_BOOT_DATASOURCE_NAMESPACE: DataSource for root disk
        (defaults: centos-stream9 / openshift-virtualization-os-images). VIRT_E2E_BOOT_DISK_Gi (default 30).
@@ -141,9 +144,9 @@ Env: VIRT_E2E_CLEANUP=1 same as --cleanup.
      VIRT_E2E_CONSOLE_PASSWORD: optional; if unset, a random alphanumeric password is generated and
        stored in CLUSTER_DIR/.virt-e2e/console-password (reused on reruns). Avoid ':' and '#' in a custom password.
 
-Note: masquerade binding is NOT supported with primary UDN namespaces. Per KubeVirt docs:
-  "Masquerade is only allowed to connect to the pod network." OKD Virtualization (4.x) only supports
-  l2bridge and passt (TP) bindings for primary UDN. This script uses bridge {} exclusively.
+Note: masquerade binding is NOT supported with primary UDN namespaces (KubeVirt: "Masquerade is only
+  allowed to connect to the pod network"). Both VMs connect to the pod network (networks: default/pod);
+  the bridge VM gets a CUDN IP when the namespace is a primary UDN, while the masq VM is always SNAT'd.
 
 Console (primary UDN namespaces, e.g. cudn1 — no virtctl ssh per product docs):
   virtctl console vm/VM_NAME -n NAMESPACE
@@ -189,8 +192,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 validate_virt_e2e_migration_target() {
-  if [[ "$VM_NAME" != "${VIRT_E2E_VM_NAME_BRIDGE}" ]]; then
-    fail "VIRT_E2E_VM_NAME / --vm-name must be ${VIRT_E2E_VM_NAME_BRIDGE} (got: ${VM_NAME})"
+  if [[ "$VM_NAME" != "${VIRT_E2E_VM_NAME_BRIDGE}" && "$VM_NAME" != "${VIRT_E2E_VM_NAME_MASQ}" ]]; then
+    fail "VIRT_E2E_VM_NAME / --vm-name must be ${VIRT_E2E_VM_NAME_BRIDGE} or ${VIRT_E2E_VM_NAME_MASQ} (got: ${VM_NAME})"
     exit 1
   fi
 }
@@ -342,11 +345,11 @@ namespace_is_primary_udn() {
 }
 
 # Emit a v1 List with one kubevirt.io/v1 VirtualMachine (DataVolumeTemplates + cloudInitNoCloud), jq-built for stable apply.
-# Uses bridge {} (l2bridge) — the only supported binding for primary UDN namespaces.
-# Masquerade is explicitly unsupported with primary UDN per KubeVirt and OKD Virtualization docs.
+# binding: "bridge" (l2bridge) or "masquerade" (SNAT / pod network NAT).
 render_virt_e2e_vm_list_json() {
   local out_json="$1"
   local vm_name="$2"
+  local binding="$3"   # bridge | masquerade
   jq -n \
     --arg name "$vm_name" \
     --arg ns "$NAMESPACE" \
@@ -358,6 +361,7 @@ render_virt_e2e_vm_list_json() {
     --arg mem "$VIRT_E2E_VM_MEMORY" \
     --arg cpu "$VIRT_E2E_VM_CPU" \
     --arg accessMode "${VIRT_E2E_BOOT_STORAGE_ACCESS_MODE}" \
+    --arg binding "$binding" \
     '
     {
       kind: "List",
@@ -372,7 +376,7 @@ render_virt_e2e_vm_list_json() {
             labels: {
               ($lbl): "true",
               "kubevirt.io/vm": $name,
-              "routing.osd.redhat.com/virt-e2e-network": "l2bridge"
+              "routing.osd.redhat.com/virt-e2e-network": $binding
             }
           },
           spec: {
@@ -400,7 +404,12 @@ render_virt_e2e_vm_list_json() {
                       {name: "rootdisk", disk: {bus: "virtio"}},
                       {name: "cloudinitdisk", disk: {bus: "virtio"}}
                     ],
-                    interfaces: [{name: "default", bridge: {}}]
+                    interfaces: [
+                      if $binding == "masquerade"
+                      then {name: "default", masquerade: {}}
+                      else {name: "default", bridge: {}}
+                      end
+                    ]
                   },
                   resources: {requests: {memory: $mem, cpu: $cpu}}
                 },
@@ -427,23 +436,30 @@ apply_virt_e2e_vms() {
   kv "console password file" "${VIRT_E2E_SSH_DIR}/console-password"
   CLOUD_USERDATA="$(build_cloud_userdata)"
 
-  title "Apply VirtualMachine (explicit manifest)"
+  title "Apply VirtualMachines (explicit manifests)"
   if ! oc get datasource -n "$VIRT_E2E_BOOT_DATASOURCE_NAMESPACE" "$VIRT_E2E_BOOT_DATASOURCE_NAME" >/dev/null 2>&1; then
     fail "DataSource not found: ${VIRT_E2E_BOOT_DATASOURCE_NAMESPACE}/${VIRT_E2E_BOOT_DATASOURCE_NAME} (oc get datasource -A | grep -i centos)"
     exit 1
   fi
   kv "boot DataSource" "${VIRT_E2E_BOOT_DATASOURCE_NAMESPACE}/${VIRT_E2E_BOOT_DATASOURCE_NAME}"
   kv "root disk size" "${VIRT_E2E_BOOT_DISK_Gi}Gi"
-  kv "network" "default pod network — bridge {} (l2bridge; masquerade unsupported with primary UDN)"
+  kv "network" "default pod network (two bindings: bridge {} l2bridge + masquerade {} SNAT)"
 
   local vm_json
   vm_json="$(mktemp)"
-  title "VM ${VIRT_E2E_VM_NAME_BRIDGE} (l2bridge)"
+
+  title "VM ${VIRT_E2E_VM_NAME_BRIDGE} (bridge / l2bridge)"
   kv "interfaces" "default + bridge {}"
-  render_virt_e2e_vm_list_json "$vm_json" "$VIRT_E2E_VM_NAME_BRIDGE"
+  render_virt_e2e_vm_list_json "$vm_json" "$VIRT_E2E_VM_NAME_BRIDGE" "bridge"
   verbose_run oc apply -n "$NAMESPACE" -f "$vm_json"
+
+  title "VM ${VIRT_E2E_VM_NAME_MASQ} (masquerade / SNAT)"
+  kv "interfaces" "default + masquerade {}"
+  render_virt_e2e_vm_list_json "$vm_json" "$VIRT_E2E_VM_NAME_MASQ" "masquerade"
+  verbose_run oc apply -n "$NAMESPACE" -f "$vm_json"
+
   rm -f "$vm_json"
-  pass "VM manifest applied (idempotent)"
+  pass "VM manifests applied (idempotent)"
 }
 
 ensure_vm_running() {
@@ -527,15 +543,17 @@ discover_ping_iface() {
 
 preflight_pvc_access_modes() {
   title "Preflight: VM-related PVC access modes (assume migration-capable unless API blocks)"
-  local out
-  out="$(oc get pvc -n "$NAMESPACE" -o json 2>/dev/null | jq -r \
-    --arg a "$VIRT_E2E_VM_NAME_BRIDGE" \
-    '.items[]? | select((.metadata.labels["vm.kubevirt.io/name"] // "") == $a) | "\(.metadata.name)\t\(.spec.accessModes)\t\(.spec.storageClassName // "n/a")"' 2>/dev/null || true)"
-  if [[ -z "$out" ]]; then
-    warn "No PVCs for vm.kubevirt.io/name=${VIRT_E2E_VM_NAME_BRIDGE} yet (may still be provisioning)"
-  else
-    info "$out"
-  fi
+  local out vm
+  for vm in "$VIRT_E2E_VM_NAME_BRIDGE" "$VIRT_E2E_VM_NAME_MASQ"; do
+    out="$(oc get pvc -n "$NAMESPACE" -o json 2>/dev/null | jq -r \
+      --arg a "$vm" \
+      '.items[]? | select((.metadata.labels["vm.kubevirt.io/name"] // "") == $a) | "\(.metadata.name)\t\(.spec.accessModes)\t\(.spec.storageClassName // "n/a")"' 2>/dev/null || true)"
+    if [[ -z "$out" ]]; then
+      warn "No PVCs for vm.kubevirt.io/name=${vm} yet (may still be provisioning)"
+    else
+      info "$out"
+    fi
+  done
   pass "Preflight logged"
 }
 
@@ -673,7 +691,8 @@ else
 fi
 kv "namespace" "$NAMESPACE"
 kv "cluster-dir" "$CLUSTER_DIR"
-kv "VM (bridge / l2bridge)" "$VIRT_E2E_VM_NAME_BRIDGE"
+kv "VM bridge (l2bridge)" "$VIRT_E2E_VM_NAME_BRIDGE"
+kv "VM masq (masquerade)" "$VIRT_E2E_VM_NAME_MASQ"
 if [[ "$SKIP_TESTS" -eq 0 ]]; then
   kv "migration / probes VM" "$VM_NAME"
 fi
@@ -722,21 +741,34 @@ fi
 
 apply_virt_e2e_vms
 ensure_vm_running "$VIRT_E2E_VM_NAME_BRIDGE"
+ensure_vm_running "$VIRT_E2E_VM_NAME_MASQ"
 wait_vmi_ready "$VIRT_E2E_VM_NAME_BRIDGE"
+wait_vmi_ready "$VIRT_E2E_VM_NAME_MASQ"
 
 title "Access: virtctl console and ssh"
-VIRTCTL_CONSOLE_VM="virtctl console vm/${VIRT_E2E_VM_NAME_BRIDGE} -n ${NAMESPACE}"
-VIRTCTL_CONSOLE_VMI="virtctl console vmi/${VIRT_E2E_VM_NAME_BRIDGE} -n ${NAMESPACE}"
-VIRTCTL_SSH="virtctl ssh -i ${VIRT_E2E_SSH_KEY} cloud-user@vm/${VIRT_E2E_VM_NAME_BRIDGE} -n ${NAMESPACE}"
-kv "virtctl console (vm)" "$VIRTCTL_CONSOLE_VM"
-kv "virtctl console (vmi)" "$VIRTCTL_CONSOLE_VMI"
-kv "virtctl ssh" "$VIRTCTL_SSH"
+VIRTCTL_CONSOLE_VM_BRIDGE="virtctl console vm/${VIRT_E2E_VM_NAME_BRIDGE} -n ${NAMESPACE}"
+VIRTCTL_CONSOLE_VMI_BRIDGE="virtctl console vmi/${VIRT_E2E_VM_NAME_BRIDGE} -n ${NAMESPACE}"
+VIRTCTL_SSH_BRIDGE="virtctl ssh -i ${VIRT_E2E_SSH_KEY} cloud-user@vm/${VIRT_E2E_VM_NAME_BRIDGE} -n ${NAMESPACE}"
+VIRTCTL_CONSOLE_VM_MASQ="virtctl console vm/${VIRT_E2E_VM_NAME_MASQ} -n ${NAMESPACE}"
+VIRTCTL_CONSOLE_VMI_MASQ="virtctl console vmi/${VIRT_E2E_VM_NAME_MASQ} -n ${NAMESPACE}"
+VIRTCTL_SSH_MASQ="virtctl ssh -i ${VIRT_E2E_SSH_KEY} cloud-user@vm/${VIRT_E2E_VM_NAME_MASQ} -n ${NAMESPACE}"
+kv "--- bridge VM (l2bridge) ---" ""
+kv "virtctl console (vm)" "$VIRTCTL_CONSOLE_VM_BRIDGE"
+kv "virtctl console (vmi)" "$VIRTCTL_CONSOLE_VMI_BRIDGE"
+kv "virtctl ssh" "$VIRTCTL_SSH_BRIDGE"
+kv "--- masq VM (masquerade) ---" ""
+kv "virtctl console (vm)" "$VIRTCTL_CONSOLE_VM_MASQ"
+kv "virtctl console (vmi)" "$VIRTCTL_CONSOLE_VMI_MASQ"
+kv "virtctl ssh" "$VIRTCTL_SSH_MASQ"
 kv "SSH identity (-i)" "$VIRT_E2E_SSH_KEY"
 kv "console user" "cloud-user"
 kv "console password" "$VIRT_E2E_CONSOLE_PASSWORD"
-printf '\n%s%s%s%s\n' "$C_BOLD" "$C_GREEN" "$VIRTCTL_CONSOLE_VM" "$C_RESET" >&2
-printf '%s%s%s%s\n' "$C_DIM" "$C_GREEN" "$VIRTCTL_CONSOLE_VMI" "$C_RESET" >&2
-printf '%s%s%s%s\n' "$C_BOLD" "$C_GREEN" "$VIRTCTL_SSH" "$C_RESET" >&2
+printf '\n%s%s%s%s\n' "$C_BOLD" "$C_GREEN" "$VIRTCTL_CONSOLE_VM_BRIDGE" "$C_RESET" >&2
+printf '%s%s%s%s\n' "$C_DIM" "$C_GREEN" "$VIRTCTL_CONSOLE_VMI_BRIDGE" "$C_RESET" >&2
+printf '%s%s%s%s\n' "$C_BOLD" "$C_GREEN" "$VIRTCTL_SSH_BRIDGE" "$C_RESET" >&2
+printf '\n%s%s%s%s\n' "$C_BOLD" "$C_GREEN" "$VIRTCTL_CONSOLE_VM_MASQ" "$C_RESET" >&2
+printf '%s%s%s%s\n' "$C_DIM" "$C_GREEN" "$VIRTCTL_CONSOLE_VMI_MASQ" "$C_RESET" >&2
+printf '%s%s%s%s\n' "$C_BOLD" "$C_GREEN" "$VIRTCTL_SSH_MASQ" "$C_RESET" >&2
 info "Password is also in: ${VIRT_E2E_SSH_DIR}/console-password"
 if command -v virtctl >/dev/null 2>&1; then
   info "virtctl console 404: match virtctl to cluster (virtctl version; Help → Command line tools). If already matched, bypass HTTP(S)_PROXY or add API host to NO_PROXY; oc get apiservice | grep subresources.kubevirt.io; try vmi/ form above. Details: ARCHITECTURE.md (VM-Specific Considerations)."
@@ -748,9 +780,11 @@ info "cloud-init / icanhazip may still be finishing in the background."
 
 if [[ "$SKIP_TESTS" -eq 1 ]]; then
   title "Summary (access-only)"
-  pass "VM is Ready — use virtctl console / virtctl ssh above (full e2e: --run-tests or VIRT_E2E_SKIP_TESTS=0)"
-  kv "virtctl console (vm)" "$VIRTCTL_CONSOLE_VM"
-  kv "virtctl ssh" "$VIRTCTL_SSH"
+  pass "Both VMs are Ready — use virtctl console / virtctl ssh above (full e2e: --run-tests or VIRT_E2E_SKIP_TESTS=0)"
+  kv "bridge VM console" "$VIRTCTL_CONSOLE_VM_BRIDGE"
+  kv "bridge VM ssh" "$VIRTCTL_SSH_BRIDGE"
+  kv "masq VM console" "$VIRTCTL_CONSOLE_VM_MASQ"
+  kv "masq VM ssh" "$VIRTCTL_SSH_MASQ"
   kv "console password" "$VIRT_E2E_CONSOLE_PASSWORD"
   printf '\n%s\n' "Cleanup: $0 -C \"$CLUSTER_DIR\" -n \"$NAMESPACE\" --cleanup" >&2
   exit 0
@@ -852,7 +886,9 @@ verbose_run oc exec -n "$NAMESPACE" netshoot-cudn -- rm -f "$CURL_SCRIPT" "$CURL
 title "Summary"
 pass "Virt live-migration e2e completed"
 kv "Migrations (target ${VM_NAME})" "${MIG1}, ${MIG2}, ${MIG3}"
-kv "virtctl console (vm)" "${VIRTCTL_CONSOLE_VM}"
+kv "bridge VM console" "${VIRTCTL_CONSOLE_VM_BRIDGE}"
+kv "masq VM console" "${VIRTCTL_CONSOLE_VM_MASQ}"
 kv "console password" "$VIRT_E2E_CONSOLE_PASSWORD"
-kv "virtctl ssh" "${VIRTCTL_SSH}"
+kv "bridge VM ssh" "${VIRTCTL_SSH_BRIDGE}"
+kv "masq VM ssh" "${VIRTCTL_SSH_MASQ}"
 printf '\n%s\n' "Cleanup: $0 -C \"$CLUSTER_DIR\" -n \"$NAMESPACE\" --cleanup" >&2

@@ -46,22 +46,3 @@ output "ncc_spoke_site_to_site_data_transfer" {
   value       = var.ncc_spoke_site_to_site_data_transfer
 }
 
-output "echo_client_vm_internal_ip" {
-  description = "Primary internal IPv4 of the echo VM (null when enable_echo_client_vm is false)"
-  value       = var.enable_echo_client_vm ? google_compute_instance.echo_client[0].network_interface[0].network_ip : null
-}
-
-output "echo_client_vm_external_ip" {
-  description = "Always null: echo VM has no external IP; use gcloud compute ssh --tunnel-through-iap (null when enable_echo_client_vm is false)"
-  value       = null
-}
-
-output "echo_client_vm_zone" {
-  description = "Zone of the echo VM (null when enable_echo_client_vm is false)"
-  value       = var.enable_echo_client_vm ? local.echo_vm_zone : null
-}
-
-output "echo_client_http_url" {
-  description = "HTTP URL for curl from CUDN pods (null when enable_echo_client_vm is false)"
-  value       = var.enable_echo_client_vm ? "http://${google_compute_instance.echo_client[0].network_interface[0].network_ip}:${var.echo_client_vm_port}/" : null
-}
