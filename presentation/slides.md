@@ -21,6 +21,148 @@ Paul Czarkowski · Red Hat Managed OpenShift Black Belt · 2026
 </div>
 
 ---
+
+# What Is OpenShift Dedicated on GCP?
+
+<RhTwoColumn>
+  <template #left>
+
+  **OpenShift Dedicated (OSD)** is a fully managed Red Hat OpenShift cluster running in your GCP project — Red Hat operates the control plane, you run workloads.
+
+  - Customer VPC in GCP, worker nodes in customer subnets
+  - Red Hat manages API, etcd, ingress, upgrades, SRE
+  - OpenShift Virtualization (KubeVirt) lets you run VMs inside OCP pods
+
+  </template>
+  <template #right>
+
+  ```mermaid
+  graph TD
+    subgraph gcp ["GCP Project (Customer)"]
+      subgraph vpc ["Customer VPC"]
+        workers["Worker Nodes\n(GCP VMs)"]
+        masters["Control Plane\n(Red Hat managed)"]
+        ilb["Internal LB\n(API + Apps)"]
+      end
+      nat["Cloud NAT\n(internet egress)"]
+      glb["GCP Load Balancer\n(ingress)"]
+    end
+    corp["Corporate\nNetwork"] -->|VPN/Interconnect| vpc
+    workers --> nat
+    glb --> ilb
+
+    style masters fill:#EE0000,color:white
+    style workers fill:#383838,color:#F0F0F0
+  ```
+
+  </template>
+</RhTwoColumn>
+
+---
+
+# The Customer Problem
+
+Customers running **OpenShift Virtualization** on GCP want to access VMs directly from their network — without `virtctl`, without Kubernetes Services, without NAT.
+
+<div class="cols-2 mt-6">
+<div>
+
+**Current reality:**
+
+```
+Corporate Network
+      │
+      ▼
+  Worker Node IP (SNATed)
+      │
+      ▼  (you never see the VM IP)
+   CUDN VM  10.128.0.x
+```
+
+- VMs have no stable, externally-routable IP
+- After live migration, the VM moves nodes — any IP-based routing breaks
+- External services can't address VMs directly
+
+</div>
+<div>
+
+**Desired state:**
+
+```
+Corporate Network
+      │
+      ▼
+   CUDN VM  10.128.0.x  ←──── direct!
+```
+
+- VM IP is routable from anywhere in the VPC
+- IP survives live migration
+- No SNAT, no proxy, no Kubernetes Service needed
+- Works exactly like a traditional VM on a network segment
+
+</div>
+</div>
+
+---
+
+# Why This Hadn't Been Done on GCP
+
+The solution is BGP — advertise the CUDN `/16` overlay prefix into the VPC routing table, so every worker's pod IPs are reachable directly.
+
+<RhTable
+  :headers="['Platform', 'Status', 'Notes']"
+  :rows="[
+    ['On-premises (OVN-K)', 'Done ✓', 'BGP with FRR, native L3 network, well understood'],
+    ['AWS (ROSA)', 'Demoed ✓', 'AWS Route Server, reference impl by Daniel Axelrod'],
+    ['GCP (OSD)', 'Not done ✗', 'NCC Router Appliance required — specific components unknown'],
+  ]"
+/>
+
+<div class="mt-6 text-[var(--rh-muted)] text-sm">
+
+GCP's equivalent of AWS Route Server is **Network Connectivity Center (NCC) with a Router Appliance spoke** — a non-obvious choice that requires `canIpForward`, `disable-connected-check`, and a hub/spoke VPC topology. None of this was documented as a working OCP pattern.
+
+</div>
+
+---
+
+# One More Thing: Paul Doesn't Know BGP
+
+<div class="text-center mt-8">
+
+> *"I can barely spell BGP."*
+> — Paul Czarkowski, repeatedly, throughout this project
+
+</div>
+
+<div class="cols-2 mt-8">
+<div>
+
+**What Paul brought:**
+- Deep OSD/GCP/OpenShift platform knowledge
+- Experience with the on-prem FRR BGP pattern
+- Access to the live cluster
+- Judgment about what matters
+
+</div>
+<div>
+
+**What the AI brought:**
+- BGP protocol knowledge (eBGP, ECMP, multi-hop, route advertisement)
+- GCP NCC / Cloud Router API details
+- The ability to read 153-endpoint OCM OpenAPI specs without complaining
+- Patience for `terraform plan` output
+
+</div>
+</div>
+
+<div class="mt-6 text-center text-[var(--rh-muted)] text-sm">
+
+*This is the first honest example of the human + AI split: domain authority on one side, protocol expertise on the other.*
+
+</div>
+
+---
 layout: section
 class: section-header
 ---
