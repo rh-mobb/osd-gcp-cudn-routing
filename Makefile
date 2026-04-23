@@ -61,6 +61,10 @@ help:
 	@echo "  operator.manifests     Generate CRD, RBAC, and webhook manifests"
 	@echo "  operator.docker-build  Build the operator container image (podman/docker)"
 	@echo ""
+	@echo "  presentation           Install deps if needed and launch Slidev dev server (opens browser)"
+	@echo "  presentation.build    Build the presentation for GitHub Pages (output: presentation/dist/)"
+	@echo "  presentation.install  npm install inside presentation/"
+	@echo ""
 	@echo "  iam.init      terraform init -upgrade in $(IAM_DIR)/"
 	@echo "  iam.plan      terraform plan in $(IAM_DIR)/"
 	@echo "  iam.apply     terraform apply in $(IAM_DIR)/"
@@ -243,6 +247,22 @@ iam.destroy: iam.init
 iam.credentials:
 	@CONTROLLER_GCP_IAM_DIR="$(CURDIR)/$(IAM_DIR)" \
 		bash "$(CURDIR)/scripts/bgp-controller-gcp-credentials.sh"
+
+# ---- Presentation (Slidev) ----
+PRESENTATION_DIR := presentation
+
+.PHONY: presentation presentation.build presentation.install
+presentation.install:
+	@cd $(PRESENTATION_DIR) && npm install
+
+presentation: presentation.install
+	@echo "Starting Slidev dev server — opening browser at http://localhost:3030"
+	@cd $(PRESENTATION_DIR) && npm run dev
+
+presentation.build: presentation.install
+	@echo "Building presentation for GitHub Pages…"
+	@cd $(PRESENTATION_DIR) && npm run build
+	@echo "Built to $(PRESENTATION_DIR)/dist/"
 
 .PHONY: fmt
 fmt:
