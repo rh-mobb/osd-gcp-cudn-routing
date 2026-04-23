@@ -349,3 +349,239 @@ class: section-header
 - Dispatch sub-agents for large tasks (each runs in its own clean context window)
 
 > *"This talk is itself an example: many of the 110 sessions deliberately started fresh."*
+
+---
+layout: section
+class: section-header
+---
+
+# Section 5
+## The Knowledge System
+
+---
+
+# KNOWLEDGE.md: Hypothesis Lifecycle
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  [*] --> Assumption: New session observation
+  Assumption --> Hypothesis: Written with confidence score
+  Hypothesis --> Testing: MCP tools / cluster inspection
+  Testing --> Verified: Evidence confirms
+  Testing --> Invalidated: Evidence refutes
+  Verified --> [*]: Promoted to Verified Facts
+  Invalidated --> [*]: Marked RESOLVED (false)
+```
+
+---
+
+# The Bridge-vs-Masquerade False Lead
+
+**The data:** bridge VMs failed internet egress. Masquerade VMs appeared to work.
+
+**The hypothesis:** VM networking mode is the differentiator.
+
+**The reality:** coincidental ECMP hits — not a structural difference.
+
+KNOWLEDGE.md documented the correction. Future sessions couldn't rediscover the false lead.
+
+> *"A confident-looking data point that was simply wrong. KNOWLEDGE.md saved us."*
+
+This is why confidence scores and falsifiability matter — not just to record what you know,
+but to prevent future sessions from re-convincing themselves of something already disproven.
+
+---
+
+# The OVN-K `ct.est` Hypothesis
+
+- **Written:** `ct_state=!est` drops were consistent with the 22% success rate data
+- **Tested:** OVN flow tables inspected via `ovs-ofctl` across all workers
+- **Corrected:** the drops were real but the *root cause* was not OVN — it was the GCP firewall
+
+> *"The AI maintained the hypothesis. The human asked the right question that refuted it."*
+
+---
+layout: section
+class: section-header
+---
+
+# Section 6
+## Novel Debugging Techniques
+
+---
+
+# tmux MCP: Parallel tcpdump Across All Workers
+
+<!-- IMAGE REQUEST: A screenshot-style mockup of a tmux session with 5 panes,
+     each showing tcpdump output on a different worker node. Dark terminal aesthetic.
+     Label each pane: worker-0 through worker-4. -->
+
+- **The problem:** internet egress was succeeding ~22% of the time — inconsistently across workers
+- **The tool:** tmux MCP + `kubectl exec` — fan out tcpdump to all 5 workers simultaneously
+- Each worker in its own pane, capturing ICMP and TCP egress traffic in real time
+
+```bash
+# tmux MCP dispatched this across all 5 workers in parallel:
+kubectl exec -n openshift-ovn-kubernetes \
+  ovnkube-node-xxxxx -c ovnkube-node -- \
+  tcpdump -i any -n 'icmp or (tcp and port 80)' -c 50
+```
+
+> *"Without tmux MCP, this is 5 separate terminal tabs and a lot of context switching."*
+
+---
+
+# Wireshark MCP: Querying PCAPs Programmatically
+
+```python
+# Wireshark MCP query — find retransmissions in the egress PCAP
+wireshark.query(
+  file="references/pcap-2026-04-23/egress-worker1.pcap",
+  filter="tcp.analysis.retransmission",
+  fields=["frame.number", "ip.src", "ip.dst", "tcp.seq"]
+)
+```
+
+- **Result:** retransmissions concentrated on workers without active BGP sessions
+- **Confirmed:** return traffic was arriving at the wrong worker (ECMP state mismatch)
+
+> *"The PCAP told the story. The MCP let the AI read it directly."*
+
+---
+
+# The Invisible OVS Datapath
+
+```mermaid
+graph TD
+  VM["CUDN VM<br/>(overlay IP)"]
+  OVS["OVS / OVN datapath<br/>(kernel module)"]
+  tcpdump["tcpdump<br/>(AF_PACKET socket)"]
+  phy["Physical NIC<br/>(eth0)"]
+
+  VM -->|"rx_handler intercept"| OVS
+  OVS -->|"bypasses AF_PACKET"| phy
+  OVS -. "tcpdump sees nothing here" .-> tcpdump
+
+  style OVS fill:#383838,color:#F0F0F0
+  style tcpdump fill:#EE0000,color:white
+```
+
+> *"tcpdump on an OVN-K worker shows nothing for CUDN pod traffic. OVS intercepts at the rx_handler level, before AF_PACKET. You need `ovs-ofctl` or `ovs-appctl` to see the actual datapath."*
+
+---
+
+# Canvas → Slidev: Animated Packet Flows
+
+The packet flow diagrams were originally built as standalone HTML canvas artifacts.
+For this presentation, they are rebuilt natively as Vue components.
+
+**The ECMP drop scenario:** packet from CUDN VM hits wrong ECMP worker, return path fails
+
+<PacketFlowEcmp />
+
+---
+
+# Canvas → Slidev: The Success Path
+
+**After the fix:** firewall rule covers `0.0.0.0/0`, any worker can handle the return
+
+<PacketFlowSuccess />
+
+---
+layout: section
+class: section-header
+---
+
+# Section 7
+## The Investigation: Finding the Smoking Gun
+
+---
+
+# The Symptom
+
+- **~22% internet egress success** from CUDN VMs on GCP (`cz-demo1`)
+- Intermittent: sometimes worked, often didn't — no clear pattern
+- OVN flows looked correct. BGP sessions established. Routes advertised.
+
+**First hypothesis:** `ct_state=!est` drops in OVN-K conntrack — consistent with the data.
+
+```bash
+# OVN flow inspection showed this rule was active:
+ct_state=-trk,ip actions=ct(table=...)
+ct_state=+trk+est,ip actions=resubmit(,...)
+ct_state=+trk-est,ip actions=drop   # ← suspected culprit
+```
+
+---
+
+# The ROSA Comparison
+
+**Parallel cluster:** `czvirt` on ROSA HCP, `eu-central-1`, OCP 4.21.9 — **100% egress success**
+
+- Identical OCP version. Identical OVN-K flows. Identical FRR BGP config.
+- ROSA used single-active routing — only one BGP peer active at a time.
+
+**Paul's question:** *"If ROSA uses single-active routing, why does it still work?"*
+
+Cross-cluster inspection revealed: ROSA has `rosa-virt-allow-from-ALL-sg` — a security group allowing all inbound traffic from the VPC.
+
+```mermaid
+graph LR
+  A["cz-demo1<br/>22% success"] -- "missing allow rule" --> B["GCP firewall<br/>only src=10.20.0.0/24"]
+  C["czvirt ROSA<br/>100% success"] -- "has allow-ALL rule" --> D["AWS SG<br/>allow 0.0.0.0/0"]
+  style A fill:#EE0000,color:white
+  style C fill:#5BA352,color:white
+```
+
+---
+
+# The Question That Cracked It
+
+> *"Is it the GCP stateful firewall?"*
+> — Paul Czarkowski
+
+**The rule:** `cz-demo1-hub-to-spoke-return` covered `src=10.20.0.0/24` only — the spoke subnet.
+
+**The gap:** return traffic from the internet arrives with `src=0.0.0.0/0` — not covered.
+
+```hcl
+# The fix — one Terraform resource:
+resource "google_compute_firewall" "allow_return_traffic" {
+  name    = "cz-demo1-allow-internet-return"
+  network = google_compute_network.hub.name
+
+  allow { protocol = "all" }
+
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["osd-worker"]
+}
+```
+
+**Verification:** 50/50 requests = 100% success. Immediately.
+
+---
+
+# Before / After: Firewall Rule
+
+```mermaid
+graph TD
+  subgraph before ["Before: 22% success"]
+    vm1["CUDN VM"] -->|"egress"| cr1["Cloud Router"]
+    cr1 -->|"internet"| ext1["External Server"]
+    ext1 -->|"return src=203.x.x.x"| fw1["GCP Firewall<br/>only allows 10.20.0.0/24"]
+    fw1 -->|"DROP 78%"| x1["✗"]
+    fw1 -->|"lucky ECMP hit 22%"| vm1
+  end
+
+  subgraph after ["After: 100% success"]
+    vm2["CUDN VM"] -->|"egress"| cr2["Cloud Router"]
+    cr2 -->|"internet"| ext2["External Server"]
+    ext2 -->|"return src=203.x.x.x"| fw2["GCP Firewall<br/>allow 0.0.0.0/0"]
+    fw2 -->|"ALLOW 100%"| vm2
+  end
+
+  style fw1 fill:#EE0000,color:white
+  style fw2 fill:#5BA352,color:white
+  style x1 fill:#EE0000,color:white
+```
