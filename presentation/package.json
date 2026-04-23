@@ -1,0 +1,13 @@
+{
+  "name": "joint-engineering-presentation",
+  "private": true,
+  "scripts": {
+    "dev": "slidev slides.md --open",
+    "build": "slidev build slides.md --base /osd-gcp-cudn-routing/",
+    "export": "slidev export slides.md"
+  },
+  "dependencies": {
+    "@slidev/cli": "^0.49.0",
+    "@slidev/theme-default": "^0.24.0"
+  }
+}

@@ -1,0 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;500;600;700;900&family=Red+Hat+Text:wght@400;500;600&display=swap');
+
+:root {
+  --rh-red: #EE0000;
+  --rh-bg: #1A1A1A;
+  --rh-surface: #242424;
+  --rh-border: #383838;
+  --rh-text: #F0F0F0;
+  --rh-muted: #A8A8A8;
+  --rh-blue: #73BCF7;
+  --rh-green: #5BA352;
+  --rh-yellow: #F0AB00;
+}
+
+.slidev-layout {
+  background: var(--rh-bg);
+  color: var(--rh-text);
+  font-family: 'Red Hat Text', sans-serif;
+}
+
+h1, h2, h3 {
+  font-family: 'Red Hat Display', sans-serif;
+  color: var(--rh-text);
+}
+
+h1 { border-left: 4px solid var(--rh-red); padding-left: 0.75rem; }
+
+a { color: var(--rh-blue); }
+
+.slidev-code { background: #0d0d0d !important; }
+
+/* Section header slides */
+.section-header h1 {
+  font-size: 3rem;
+  color: var(--rh-red);
+  border: none;
+  padding: 0;
+}
+
+/* Two-column grid utility */
+.cols-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+.tag {
+  display: inline-block;
+  background: var(--rh-red);
+  color: white;
+  font-size: 0.7rem;
+  font-family: 'Red Hat Display', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.6rem;
+  border-radius: 2px;
+  margin-bottom: 0.5rem;
+}
