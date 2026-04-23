@@ -482,7 +482,7 @@ Three sections that changed the behavior most:
 
 **1. Debugging section:** "evidence before edits" — investigate before changing code
 
-**2. Self-review section:** "what would a senior engineer critique?" — mandatory before every response
+**2. Self-review section:** "what would a senior engineer critique?" — mandatory before every response *(pattern from [ambient-code/reference](https://github.com/ambient-code/reference))*
 
 **3. GCP constraints section:** institutional memory, never repeated
 

@@ -87,7 +87,12 @@ In a **non-UDN namespace**, `masquerade` binding would SNAT to a `10.128.x.x` po
   The spoke VPC firewall had no rule allowing traffic from the hub egress subnet (`10.20.0.0/24`). This caused the hub NAT VMs to successfully masquerade outbound CUDN traffic to the internet, but the return SYN-ACK/reply packets (routed back via `0.0.0.0/0` peering → spoke VPC → Cloud Router ECMP → worker node) were silently dropped at the GCP firewall on the spoke worker. Symptoms: CUDN internet access worked intermittently (~10% of attempts) because GCP's stateful firewall only allowed return packets on the exact node whose outbound flow created the state; with 10-way Cloud Router ECMP, the return landed on the "right" node only ~1 in 10 times. Fix: add a spoke VPC firewall rule allowing all protocols from the hub egress CIDR to all spoke instances. After adding the rule, all 3 hub NAT VMs could ping all CUDN addresses (0% loss) and internet egress became reliable.
 
 - **CUDN internet egress is fundamentally ECMP-unreliable with the BGP hub/spoke architecture. No workaround is available in OCP 4.21 on GCP.** Verified in production April 2026.
-  Root cause: CUDN pods route all egress (including internet) via `ovn-udn1` (the secondary OVN interface, `default via 10.100.0.1 dev ovn-udn1`). RouteAdvertisements preserves the CUDN pod IP for external destinations (no SNAT by OVN-K). The hub NAT VM masquerades outbound traffic and DNATs return packets back to the CUDN pod IP (`10.100.0.x`). These return packets then enter the spoke VPC and hit Cloud Router ECMP (10 paths: 5 workers × 2 BGP peers), landing on a random worker. OVN-K's conntrack state for the outbound connection is **node-local** — only the originating worker can process the return. On any other worker, OVN-K sees an internet-sourced packet with no conntrack state and drops it. Result: ~2/10 connections succeed. The same problem exists with single-VPC + Cloud NAT + BGP — Cloud NAT DNATs to the CUDN IP which also hits Cloud Router ECMP. VPC-to-CUDN connectivity is unaffected (return traffic from VPC IPs is allowed by OVN-K on any node via Geneve forwarding).
+  Root cause: CUDN pods route all egress (including internet) via `ovn-udn1` (the secondary OVN interface, `default via 10.100.0.1 dev ovn-udn1`). RouteAdvertisements preserves the CUDN pod IP for external destinations (no SNAT by OVN-K). The hub NAT VM masquerades outbound traffic and DNATs return packets back to the CUDN pod IP (`10.100.0.x`). These return packets then enter the spoke VPC and hit Cloud Router ECMP, landing on a random worker. The **GCP VPC stateful firewall** drops internet-sourced return packets (`src=34.x.x.x`) on workers that did not originate the outbound connection — those workers have no matching tracked session, and the spoke firewall rules only allow inbound from the hub subnet (`10.20.0.0/24`, rule `cz-demo1-hub-to-spoke-return`), not from arbitrary internet IPs. Only the originating worker's firewall has a tracked state entry for `src=34.x.x.x`, so only connections returned to that worker succeed. Result: ~1/(ECMP-fan-out) connections succeed. VPC-to-CUDN connectivity is unaffected (RFC-1918 return traffic is not blocked by the GCP firewall's stateful tracking).
+  **Fix confirmed in production (April 2026):** Adding `google_compute_firewall.cudn_egress_return`
+  (allow all from `0.0.0.0/0`, VPC-wide, priority 800) to the spoke VPC raised internet egress from
+  ~22% to **50/50 = 100%** immediately. Implemented in `modules/osd-spoke-vpc` as
+  `enable_cudn_egress_return = true` (default false). No target tags — GCP worker network tags are
+  assigned by the OSD installer and are not under our control.
   **Workarounds investigated and ruled out:**
   - `routingViaHost: true`: CUDN egress goes through `ovn-udn1` (OVN pipeline), not the primary `eth0`. Host nftables is never invoked for CUDN traffic. Enabling this setting also broke CUDN routing entirely by reconfiguring OVN gateway routers. Tested and reverted April 2026.
   - Host nftables DaemonSet: Cannot intercept traffic in the OVS pipeline path (`ovn-udn1 → OVN GR → br-ex`). Ruled out.
@@ -98,9 +103,9 @@ In a **non-UDN namespace**, `masquerade` binding would SNAT to a `10.128.x.x` po
   **Practical guidance:** Neither `bridge` nor `masquerade` binding provides reliable internet egress for VMs in a primary UDN namespace. Reserve CUDN for intra-cluster and VPC-to-pod connectivity where stable pod IPs are needed.
   Codified in `modules/osd-spoke-vpc` as `google_compute_firewall.hub_to_spoke_return`, enabled via the `hub_egress_cidr` variable.
 
-- **The ECMP + OVN-K conntrack failure is specific to internet-sourced return IPs and does not affect RFC-1918 / private-range traffic.** Verified in production April 2026.
-  The failure mode is not NAT itself — it is the **public internet source IP** that the hub NAT VM DNAT preserves on the return packet (`src=8.8.8.8, dst=10.100.0.4`). OVN-K's CUDN ACL rejects new connections from public internet IPs on workers that lack local conntrack state for that flow.
-  By contrast, OVN-K allows new inbound connections from RFC-1918 / VPC-range source IPs on any worker and Geneve-forwards to the correct pod. Evidence: the echo VM curl test (CUDN pod → VPC host → return from `10.0.32.2`) worked 100% reliably, even though the return also traverses Cloud Router ECMP to a random worker.
+- **The ECMP firewall-drop failure is specific to internet-sourced return IPs and does not affect RFC-1918 / private-range traffic.** Verified in production April 2026.
+  The failure mode is not NAT itself — it is the **public internet source IP** that the hub NAT VM DNAT preserves on the return packet (`src=8.8.8.8, dst=10.100.0.4`). The GCP VPC stateful firewall allows return traffic for `src=8.8.8.8` only on the worker that established the outbound session. No explicit firewall rule allows `src=0.0.0.0/0` inbound to spoke workers.
+  By contrast, RFC-1918 / VPC-range return traffic (`src=10.x.x.x`) is covered by other spoke firewall rules (e.g., `cz-demo1-worker-subnet-to-cudn`, `cz-demo1-internal-cluster`) or by stateful tracking that applies on any worker for intra-VPC traffic. Evidence: the echo VM curl test (CUDN pod → VPC host → return from `10.0.32.2`) worked 100% reliably, even though the return also traverses Cloud Router ECMP to a random worker. OVN Geneve-forwards RFC-1918 returns unconditionally.
   **Implication:** The following traffic patterns are reliable regardless of ECMP:
   - Inbound from VPC hosts, peered VPCs, on-premises via VPN/Interconnect — all use RFC-1918 source IPs ✓
   - CUDN pod → VPC/on-prem → return (no internet NAT) — return src is RFC-1918 ✓
@@ -142,6 +147,16 @@ Known issue CNV-16107.
 Configured via Multus NAD and `spec.liveMigrationConfig.network` on HyperConverged.
 
 ### GCP-Specific (NCC + Cloud Router)
+
+- **GCP worker network tags are assigned by the OSD/OCP installer and are not under our control.**
+  All workers (baremetal and standard) receive the tag `<cluster-name>-<installer-id>-worker` (e.g.
+  `cz-demo1-k5r7v-worker`). We cannot set custom tags on worker instances post-creation via our
+  Terraform. Firewall rules that need to target BGP workers specifically must use VPC-wide scope
+  (no `target_tags`) rather than relying on a tag we do not control. This is why
+  `google_compute_firewall.cudn_egress_return` in `modules/osd-spoke-vpc` applies to all instances
+  in the spoke VPC, mirroring the behaviour of AWS `rosa-virt-allow-from-ALL-sg`.
+  **Confidence: 100%** (confirmed by inspecting live cluster instances; no Terraform or OSD API to
+  set custom tags on MachineSet-managed instances).
 
 - **Cloud Router uses exactly 2 interfaces (HA pair).**
 GCP Router Appliance architecture requires primary + redundant interfaces.
@@ -420,7 +435,7 @@ That worker must forward the packet through the OVN Layer2 overlay to the correc
 Whether this cross-node forwarding path is reliably configured for externally-sourced traffic entering via the host network stack is not confirmed.
 Confidence it works: **75%** (Layer2 broadcast domain should handle it, but untested for this exact ingress path).
 
-**RESOLVED (April 2026):** OVN overlay forwarding for CUDN inbound traffic works correctly. However, the root cause of intermittent CUDN internet egress is **Cloud Router ECMP + OVN-K node-local conntrack**. Full root cause documented in Verified Facts below.
+**RESOLVED (April 2026):** OVN overlay forwarding for CUDN inbound traffic works correctly. The root cause of intermittent CUDN internet egress is **Cloud Router ECMP + GCP VPC stateful firewall** dropping internet-sourced return packets on workers that did not originate the connection. OVN-K itself does not drop these packets (confirmed by cross-cluster comparison with ROSA/OCP 4.21.9 which has identical OVN flows but 100% success due to an allow-all AWS security group). Full root cause documented in Verified Facts.
 
 11. **Can tag-scoped default routes (e.g. NAT gateway ILB next hop) be made operational on OSD-GCP without per-VM network tags?**
 **Greenfield mitigation:** hub VPC NAT + spoke **`0.0.0.0/0` → hub ILB** via peering avoids tag-scoped routes on workers ([ARCHITECTURE.md](ARCHITECTURE.md)). Same-VPC NAT patterns that relied on **`nat-client`** tags remain a concern if reused elsewhere.
@@ -447,3 +462,5 @@ Confidence it works: **75%** (Layer2 broadcast domain should handle it, but unte
 | OCP 4.21 Advanced Networking guide (PDF, 2026-03-30) | Red Hat docs | RouteAdvertisements constraints, FRR-K8s behavior, BGP bare-metal-only statement, EgressIP limitations |
 | OCP 4.21 Virtualization guide (PDF, 2026-03-30) | Red Hat docs | Layer2 UDN for VMs, persistent IPAM for live migration, GCP GA, masquerade interruption during migration |
 | [`archive/docs/nat-gateway.md`](archive/docs/nat-gateway.md) | In-repo plan | CUDN egress vs Cloud NIC registration, OVN-K EgressIP gap on GR node, ILB + MASQUERADE workaround; tag-scoped routes vs OSD constraints |
+| [ambient-code/reference — Self-Review Reflection](https://github.com/ambient-code/reference/blob/main/docs/patterns/self-review-reflection.md) | External pattern | Source of `AGENTS.md` self-review section. Pattern: agent re-reads its own output as a reviewer before presenting to humans, checking for missing edge cases, incomplete reasoning, and security gaps. Confidence: **verified** — the pattern measurably improved output quality across 65 sessions in this project. |
+| [ambient-code.ai](https://ambient-code.ai) / [github.com/ambient-code](https://github.com/ambient-code) | External resource | Broader AI-first engineering philosophy ("code shepherds" orchestrating agentic teams). Recommended reference for joint engineering practices alongside this project. |
