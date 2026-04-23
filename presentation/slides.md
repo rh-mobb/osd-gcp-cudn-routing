@@ -605,3 +605,154 @@ graph TD
   style fw2 fill:#5BA352,color:white
   style x1 fill:#EE0000,color:white
 ```
+
+---
+layout: section
+class: section-header
+---
+
+# Section 8
+## Human in the Loop
+
+---
+
+# The Moments That Mattered
+
+<RhTable
+  :headers="['What Paul said', 'Why it mattered']"
+  :rows="[
+    ['Do nothing', 'Stopped a false debugging path before it wasted hours'],
+    ['Stop talking about EgressIP', 'Boundary setting — AI kept returning to a solved problem'],
+    ['Is it the GCP stateful firewall?', 'The question that cracked the 7-day investigation'],
+    ['Validate commands before giving them to me', 'Quality feedback that changed agent behavior permanently'],
+    ['If ROSA works, why?', 'Cross-domain pattern recognition the AI couldn\'t supply alone'],
+  ]"
+/>
+
+> *"The AI uses context you give it. The human decides what context is worth surfacing."*
+
+---
+
+# Daniel Axelrod: The External Human in the Loop
+
+A Slack thread turned into three architectural changes:
+
+1. **"All workers as peers"** — Slack narration → changed from single-active to all-workers-as-BGP-peers
+2. **exec-then-SSH** — unlocked VM debugging from inside CUDN pods
+3. **Terminus-2 link** — reference to Harbor's tmux-based agent led directly to tmux MCP adoption (same day)
+
+> *"Expert practitioners drop high-signal hints in casual conversation. Learn to hear them."*
+
+---
+
+# The Human's Irreplaceable Role
+
+<RhTwoColumn>
+  <template #left>
+
+  **What the AI did well:**
+  - Maintained context across 65 sessions
+  - Ran parallel tcpdump across all workers
+  - Read PCAPs, queried Kubernetes, wrote Terraform
+  - Generated hypotheses consistent with the data
+  - Reviewed its own work before showing it
+
+  </template>
+  <template #right>
+
+  **What only the human could do:**
+  - Cross-domain pattern recognition (ROSA → GCP firewall)
+  - Knowing when to stop a false path
+  - Deciding which external threads were worth surfacing
+  - Setting boundaries and priorities
+  - Asking the right question at the right time
+
+  </template>
+</RhTwoColumn>
+
+---
+layout: section
+class: section-header
+---
+
+# Section 9
+## What We Produced
+
+---
+
+# The Artifacts
+
+<div class="cols-2">
+<div>
+
+**Infrastructure**
+- Working Terraform provider for OSD on GCP
+- Complete BGP routing reference (Terraform + Operator)
+- CRD: `routing.osd.redhat.com/v1alpha1 BGPRoutingConfig`
+- CI pipeline + UBI Dockerfile
+
+</div>
+<div>
+
+**Knowledge**
+- `KNOWLEDGE.md` — 65 sessions of institutional memory
+- `ARCHITECTURE.md` — stable design record
+- `docs/bgp-cudn-guide.md` — shareable BGP dummies guide
+- PCAP analysis + Wireshark filters
+- This presentation
+
+</div>
+</div>
+
+---
+layout: section
+class: section-header
+---
+
+# Section 10
+## Takeaways
+
+---
+
+# Patterns to Steal
+
+1. **Scaffold first** — `AGENTS.md` + keel rules + `ARCHITECTURE.md` before writing any code
+2. **Give the AI access to the systems it's reasoning about** — MCP tools are force multipliers; without them the agent is blind
+3. **Manage knowledge deliberately** — `KNOWLEDGE.md` with confidence scores retained context across 65 sessions
+4. **Manage context actively** — don't let sessions exceed 50%; start fresh; dispatch sub-agents
+5. **The human's role shifts** — from writing code to providing judgment, direction, and domain authority
+
+---
+
+# The Toolchain
+
+<RhTable
+  :headers="['Tool', 'What it enabled']"
+  :rows="[
+    ['Kubernetes MCP', 'Live cluster inspection — pods, nodes, OVN flows, BGP peers'],
+    ['tmux MCP', 'Parallel tcpdump across all workers simultaneously'],
+    ['Wireshark MCP', 'Programmatic PCAP querying — retransmission filters, flow analysis'],
+    ['Context7', 'GCP and OCP authoritative docs fetched at decision time, not from memory'],
+    ['Canvas → Slidev', 'Shareable animated diagrams as first-class artifacts'],
+    ['Keel / AGENTS.md', 'Agent scaffolding — the environment that made discipline possible'],
+  ]"
+/>
+
+---
+layout: center
+class: text-center
+---
+
+# You're not prompting an AI.
+
+<div class="text-3xl font-bold mt-4" style="color: var(--rh-red); font-family: 'Red Hat Display', sans-serif">
+You're engineering an environment —<br />and working inside it together.
+</div>
+
+<div class="mt-12 text-sm" style="color: var(--rh-muted)">
+
+[github.com/paulczar/keel](https://github.com/paulczar/keel) ·
+[tech.paulcz.net/keel](https://tech.paulcz.net/keel) ·
+[agentmdx.com](https://agentmdx.com)
+
+</div>
