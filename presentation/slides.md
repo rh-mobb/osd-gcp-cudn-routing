@@ -355,6 +355,26 @@ layout: section
 class: section-header
 ---
 
+# Section 4
+## How We Worked
+
+---
+
+# 110 Sessions · 7 Weeks · Two Repos
+
+<Timeline />
+
+<div class="mt-4 text-sm" style="color: var(--rh-muted)">
+
+45 sessions in `tf-provider-osd-google` · 65 sessions in `osd-gcp-cudn-routing`
+
+</div>
+
+---
+layout: section
+class: section-header
+---
+
 # Section 5
 ## The Knowledge System
 
