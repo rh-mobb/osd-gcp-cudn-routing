@@ -4,7 +4,6 @@ title: "Joint Engineering with AI"
 info: |
   Joint Engineering with AI: How We Built and Debugged a Production BGP Routing System
   Red Hat Managed OpenShift Black Belt — Paul Czarkowski
-css: styles/rh-theme.css
 highlighter: shiki
 lineNumbers: false
 fonts:

@@ -18,19 +18,26 @@
   font-family: 'Red Hat Text', sans-serif;
 }
 
-h1, h2, h3 {
+.slidev-layout h1,
+.slidev-layout h2,
+.slidev-layout h3 {
   font-family: 'Red Hat Display', sans-serif;
   color: var(--rh-text);
 }
 
-h1 { border-left: 4px solid var(--rh-red); padding-left: 0.75rem; }
+.slidev-layout h1 {
+  border-left: 4px solid var(--rh-red);
+  padding-left: 0.75rem;
+}
 
-a { color: var(--rh-blue); }
+.slidev-layout a {
+  color: var(--rh-blue);
+}
 
 .slidev-code { background: #0d0d0d !important; }
 
 /* Section header slides */
-.section-header h1 {
+.section-header .slidev-layout h1 {
   font-size: 3rem;
   color: var(--rh-red);
   border: none;
@@ -44,7 +51,7 @@ a { color: var(--rh-blue); }
   gap: 2rem;
 }
 
-.tag {
+.rh-tag {
   display: inline-block;
   background: var(--rh-red);
   color: white;
