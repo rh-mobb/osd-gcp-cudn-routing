@@ -1713,6 +1713,9 @@ better direct routing.
 > (`RhTwoColumn`, `RhTable`, `SpectrumDiagram`, `PacketFlowEcmp`, `PacketFlowSuccess`, `Timeline`),
 > Mermaid diagrams, and CSS-animated SVG packet flow components (replacing the standalone HTML artifacts).
 >
+> **Speaker notes:** All ~50 slides have speaker notes (HTML comment blocks), written in first person
+> as speaking guidance for Paul. View them in Slidev presenter mode (`npm run dev`, press `p`).
+>
 > **Image generation pending:** 4 slides have `<!-- IMAGE REQUEST: -->` comments for Gemini/AI-generated
 > images (TF provider fuel diagram, Keel layer model, context degradation cliff graph, tmux 5-pane mockup).
 
