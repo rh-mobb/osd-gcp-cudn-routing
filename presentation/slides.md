@@ -26,6 +26,55 @@ Welcome everyone. I'm Paul Czarkowski, a Managed OpenShift Black Belt at Red Hat
 
 ---
 
+# Meet the Team
+
+<div class="cols-2 mt-4">
+<div class="flex flex-col items-center text-center">
+
+<img src="/paul.jpg" alt="Paul Czarkowski" class="w-32 h-32 rounded-full object-cover mb-4 border-2 border-[var(--rh-red)]" />
+
+### Paul Czarkowski
+<div class="rh-tag mb-3">Human</div>
+
+Senior Principal · Cloud Services Black Belts · Red Hat
+
+20+ years in cloud, Kubernetes, and DevOps. Running Docker in production since 2014, Kubernetes before it was cool. Speaker at KubeCon, DevOpsDays, and conferences worldwide.
+
+Open source advocate. Competitive BBQ pitmaster. Cannot spell BGP.
+
+<div class="mt-2 text-[var(--rh-muted)] text-xs">
+
+[tech.paulcz.net](https://tech.paulcz.net) · [github.com/paulczar](https://github.com/paulczar)
+
+</div>
+</div>
+<div class="flex flex-col items-center text-center">
+
+<div class="w-32 h-32 rounded-full mb-4 border-2 border-[var(--rh-blue)] flex items-center justify-center text-5xl" style="background: var(--rh-surface)">🤖</div>
+
+### Cursor AI (Sonnet)
+<div class="rh-tag mb-3" style="background: var(--rh-blue)">AI</div>
+
+Powered by Claude Sonnet · Cursor IDE · 2026
+
+110 sessions. 0 coffee breaks. Reads 153-endpoint OpenAPI specs without complaining. Specializes in BGP (confidence: 95%), GCP NCC, Terraform, and Go operators.
+
+Investigates before guessing. Reviews own work before showing it. Does not know BBQ — but understands smoked packets.
+
+<div class="mt-2 text-[var(--rh-muted)] text-xs">
+
+[cursor.com](https://cursor.com) · Context window: managed carefully
+
+</div>
+</div>
+</div>
+
+<!--
+Quick speaker intros — keep this light and fast, 60 seconds max. The joke about "cannot spell BGP" lands well here and sets up the collaboration frame. The Cursor bio gets a laugh from technical audiences who've worked with AI tools.
+-->
+
+---
+
 # What Is OpenShift Dedicated on GCP?
 
 <RhTwoColumn>

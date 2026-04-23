@@ -1,2 +1,5 @@
 node_modules/
 dist/
+# Speaker photos — drop real images here, not tracked in git
+public/paul.jpg
+public/paul.png
