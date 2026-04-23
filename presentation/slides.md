@@ -20,6 +20,10 @@ fonts:
 Paul Czarkowski · Red Hat Managed OpenShift Black Belt · 2026
 </div>
 
+<!--
+Welcome everyone. I'm Paul Czarkowski, a Managed OpenShift Black Belt at Red Hat. This talk is a case study in joint engineering with AI: how we built and debugged a production BGP routing stack for OpenShift Virtualization on GCP—not as a vibe-coding demo, but as disciplined infrastructure work.
+-->
+
 ---
 
 # What Is OpenShift Dedicated on GCP?
@@ -57,6 +61,10 @@ Paul Czarkowski · Red Hat Managed OpenShift Black Belt · 2026
 
   </template>
 </RhTwoColumn>
+
+<!--
+I want to ground you in the platform before the BGP story. OpenShift Dedicated on GCP means the customer's VPC and worker nodes live in their project, while Red Hat runs the control plane. Workers reach the internet through Cloud NAT; the diagram is the mental model we'll keep coming back to when we talk about routing and firewalls.
+-->
 
 ---
 
@@ -103,6 +111,10 @@ Corporate Network
 </div>
 </div>
 
+<!--
+This is the question that kicked everything off. Customers running KubeVirt VMs on a CUDN want corporate networks to reach the VM's real overlay IP—no virtctl port-forward, no Service indirection, no SNAT to a worker. Today the path goes through the worker and breaks on live migration; the desired state is boring L3: the VM IP is just routable in the VPC.
+-->
+
 ---
 
 # Why This Hadn't Been Done on GCP
@@ -123,6 +135,10 @@ The solution is BGP — advertise the CUDN `/16` overlay prefix into the VPC rou
 GCP's equivalent of AWS Route Server is **Network Connectivity Center (NCC) with a Router Appliance spoke** — a non-obvious choice that requires `canIpForward`, `disable-connected-check`, and a hub/spoke VPC topology. None of this was documented as a working OCP pattern.
 
 </div>
+
+<!--
+The fix is BGP: advertise the CUDN /16 into the VPC so every worker's pod CIDR is reachable. On-prem OVN-K and AWS ROSA already had patterns; on GCP the missing piece was NCC with a Router Appliance spoke—not a straight Cloud Router clone of AWS Route Server. That's why this was genuinely greenfield for OSD on GCP.
+-->
 
 ---
 
@@ -162,6 +178,10 @@ GCP's equivalent of AWS Route Server is **Network Connectivity Center (NCC) with
 
 </div>
 
+<!--
+I'll own this up front: I say "I can barely spell BGP"—and I mean it. What I brought was OSD, GCP, and OpenShift depth plus live cluster access; what the AI brought was real BGP mechanics, NCC and Cloud Router APIs, and the patience to chew through a 153-endpoint OCM OpenAPI spec. That's the collaboration model for the rest of the talk.
+-->
+
 ---
 layout: section
 class: section-header
@@ -169,6 +189,10 @@ class: section-header
 
 # Section 1
 ## What Is Joint Engineering?
+
+<!--
+Now let's look at what I actually mean by "joint engineering" versus just using an AI as a faster autocomplete—because that framing is what everything else hangs on.
+-->
 
 ---
 
@@ -212,6 +236,10 @@ This talk is about the rightmost position — and what it takes to get there.
 
 </div>
 
+<!--
+The spectrum runs from code autocomplete through chat assistants and tool-using agents to what I'm calling a joint engineering partner. This talk isn't cheerleading for "smarter models"—it's about what you have to build around the model to land on that right-hand side reliably.
+-->
+
 ---
 
 # What Changes When AI Is a Partner
@@ -222,6 +250,10 @@ This talk is about the rightmost position — and what it takes to get there.
 - **You provide what only a human can**: judgment, priorities, domain authority, the right question at the right time
 
 > *"Not a success story about AI being smart. A story about building an environment where AI can be disciplined."*
+
+<!--
+When AI is a partner, it keeps state in the repo—KNOWLEDGE.md, AGENTS.md, ARCHITECTURE.md—investigates before it edits, and self-reviews before it shows you work. Your job shifts to judgment, priorities, and knowing which question to ask. That's the contract I'll keep pointing to.
+-->
 
 ---
 
@@ -253,6 +285,10 @@ Including a multi-day debugging investigation with packet captures, live cluster
 </div>
 </div>
 
+<!--
+Seven weeks, two repos, about a hundred and ten sessions—one human, one AI—building BGP for OpenShift Virtualization on GCP from scratch, including a multi-day egress debug with PCAPs and a real smoking gun. I'll walk the origin story, scaffolding, how we worked, knowledge, debugging tricks, that investigation, and what I learned about staying in the loop.
+-->
+
 ---
 layout: section
 class: section-header
@@ -260,6 +296,10 @@ class: section-header
 
 # Section 2
 ## The Origin Story
+
+<!--
+Here's where the project actually started—the Terraform provider wasn't a sideshow; it was the proving ground for the same joint-engineering pattern we reused for BGP.
+-->
 
 ---
 
@@ -276,6 +316,10 @@ A story unto itself — the proving ground.
 
 <!-- IMAGE REQUEST: A simple graphic showing the references/ folder as "fuel" feeding into an AI engine.
      Use Gemini image generation or similar. Style: technical diagram, dark background, RH red accent. -->
+
+<!--
+Nobody had shipped a Terraform provider for OSD on GCP, so I built one first—Keel scaffolding, then a fat references/ folder: RHCS provider source, OCM SDK, CLI, the full OpenAPI spec with 153 endpoints, and GCP modules. The lesson I want you to steal: don't make the model guess; clone the authoritative sources and work from those.
+-->
 
 ---
 
@@ -296,6 +340,10 @@ A story unto itself — the proving ground.
     ['Flat VPC assumed', 'Hub/spoke VPC topology required'],
   ]"
 />
+
+<!--
+On March 18, Shreyans Mulkutkar—OSD GCP PM—Slack'd me that he'd used Claude to draft a GCP equivalent of AWS Route Server. The draft was 1,126 lines: right ambition, but it treated GCP like AWS—static routes, no NCC Router Appliance, no operator, missing canIpForward and disable-connected-check, flat VPC. That's the gap between "sounds plausible" and "would actually run."
+-->
 
 ---
 
@@ -323,6 +371,10 @@ A story unto itself — the proving ground.
 
 > *Claude confirmed the direction. Cursor built the thing.*
 
+<!--
+I use Claude to explore and scope—it gave us a big strawman. Cursor, with cluster access, Context7, and the repo rules, is what turned that into correct Terraform, a CRD operator, and CI. The punchline I use: Claude confirmed the direction; Cursor made it correct.
+-->
+
 ---
 
 # Paul's Response
@@ -336,6 +388,10 @@ Same method that worked for the TF provider:
 
 **March 26: first commit in `osd-gcp-cudn-routing`.**
 
+<!--
+I answered that I'd been planning to take a run at it anyway—same playbook as the provider: Keel first, references for NCC docs and rosa-bgp, then joint engineering from session one. First commit in osd-gcp-cudn-routing landed March 26.
+-->
+
 ---
 layout: section
 class: section-header
@@ -343,6 +399,10 @@ class: section-header
 
 # Section 3
 ## Scaffolding the Agent
+
+<!--
+Next I want to show what actually made the agent disciplined—scaffolding isn't glamorous, but it's the difference between one-off prompts and sixty-five consistent sessions.
+-->
 
 ---
 
@@ -360,6 +420,10 @@ class: section-header
 
 <!-- IMAGE REQUEST: The Keel layering model diagram — keel defaults → org standards → local overrides.
      Three stacked horizontal layers with arrows flowing down. RH dark theme. -->
+
+<!--
+Project Keel is my open-source way to author AGENTS.md and layered rules once and sync them into Cursor, Copilot, and friends—the Linux Foundation AGENTS.md standard. The meta-point: I built the scaffolding tool, then used it on this repo so rules live in Git, get reviewed, and carry real audit history.
+-->
 
 ---
 
@@ -383,6 +447,10 @@ Three sections that changed the behavior most:
 - `depends_on = [module.foo]` on a module defers all data sources to apply-time,
   breaking for_each key resolution. Pass outputs directly as inputs instead.
 ```
+
+<!--
+Three sections moved the needle most: evidence before edits in debugging, mandatory self-review, and this GCP constraints block—API footguns we hit once and then encoded so no future session had to rediscover them. I read this list aloud sometimes; it's institutional memory, not trivia.
+-->
 
 ---
 
@@ -408,6 +476,10 @@ module "route" {
 
 > *"AI coding mistakes are often scaffolding gaps, not model failures. Fix the rules, not the model."*
 
+<!--
+This is the canonical Terraform footgun: depends_on on a module defers every data source inside that module to apply time, which breaks for_each keys at plan. The fix is implicit dependency—pass module.spoke.id instead. We wrote that into AGENTS.md and terraform.md and didn't repeat it across the next fifty sessions. That's fixing scaffolding, not blaming the model.
+-->
+
 ---
 
 # The GCP "Things It Doesn't Tell You" List
@@ -423,6 +495,10 @@ Each of these is a one-time mistake. Each became a permanent rule.
     ['depends_on on modules', 'Defers data sources to apply-time', 'Pass outputs as inputs instead'],
   ]"
 />
+
+<!--
+Each row is something GCP or RHEL burned us on once—cross-VPC ILB next hop needs ip_address not self_link, SHARED_LOADBALANCER_VIP fights next_hop_ilb, nftables on RHEL 9 reads /etc/sysconfig/nftables.conf, module depends_on poisons plan. The point for the audience: one painful hour becomes a permanent rule so the agent doesn't "invent" the mistake again.
+-->
 
 ---
 
@@ -466,6 +542,10 @@ and installs ECMP routes in the VPC routing table. Verified via `gcloud`
 route inspection April 2026.
 ```
 
+<!--
+ARCHITECTURE.md is the curated "what we decided"—reviewed, stable. KNOWLEDGE.md is living evidence: confidence scores, hypotheses, things we might be wrong about. When something graduates, it lands under Verified Facts; that split kept design docs clean while still capturing what we actually learned in the cluster.
+-->
+
 ---
 layout: section
 class: section-header
@@ -473,6 +553,10 @@ class: section-header
 
 # Setup Aside
 ## Practical Joint Engineering Toolchain
+
+<!--
+Quick practical aside—borrowed from "How to Make Claude Less Dumb" style advice: the toolchain around the agent matters as much as the prompt. I'll talk about context windows and why I deliberately start fresh.
+-->
 
 ---
 
@@ -492,6 +576,10 @@ class: section-header
 
 > *"This talk is itself an example: many of the 110 sessions deliberately started fresh."*
 
+<!--
+Long-running chats rot: past about fifty percent context fill, the model forgets constraints and hallucinates. My rules: stay under fifty percent, use cc-status-line to watch it, spin sub-agents for big tasks. Many of our hundred-ten sessions were intentionally new threads—this deck is proof you can still ship coherent work that way.
+-->
+
 ---
 layout: section
 class: section-header
@@ -499,6 +587,10 @@ class: section-header
 
 # Section 4
 ## How We Worked
+
+<!--
+Now let's talk about velocity and discipline across the two repos—how many sessions, what tools we leaned on, and why CI wasn't an afterthought.
+-->
 
 ---
 
@@ -512,6 +604,10 @@ class: section-header
 
 </div>
 
+<!--
+Hundred-ten sessions over seven weeks split forty-five on the Terraform provider repo and sixty-five on osd-gcp-cudn-routing—we started from zero on the provider and BGP routing emerged as the next mountain. The timeline on screen maps that cadence; the through-line is investigate before fixing, update KNOWLEDGE.md, and validate commands before I run them.
+-->
+
 ---
 layout: section
 class: section-header
@@ -519,6 +615,10 @@ class: section-header
 
 # Section 5
 ## The Knowledge System
+
+<!--
+Now let's dig into KNOWLEDGE.md—why confidence scores and falsifiable hypotheses matter when you're not in the same chat window every day.
+-->
 
 ---
 
@@ -535,6 +635,10 @@ stateDiagram-v2
   Verified --> [*]: Promoted to Verified Facts
   Invalidated --> [*]: Marked RESOLVED (false)
 ```
+
+<!--
+This is the lifecycle we used: observation becomes an assumption, then a scored hypothesis, then MCP or cluster evidence promotes it to verified or marks it dead. The point isn't documentation theater—it's so the next session doesn't reopen solved questions.
+-->
 
 ---
 
@@ -553,6 +657,10 @@ KNOWLEDGE.md documented the correction. Future sessions couldn't rediscover the 
 This is why confidence scores and falsifiability matter — not just to record what you know,
 but to prevent future sessions from re-convincing themselves of something already disproven.
 
+<!--
+We thought bridge-mode VMs were broken while masquerade "worked"—a confident-looking split that was just ECMP luck. Once we wrote the correction into KNOWLEDGE.md, later sessions couldn't keep chasing that ghost. That's the "KNOWLEDGE.md saved us" story in one anecdote.
+-->
+
 ---
 
 # The OVN-K `ct.est` Hypothesis
@@ -563,6 +671,10 @@ but to prevent future sessions from re-convincing themselves of something alread
 
 > *"The AI maintained the hypothesis. The human asked the right question that refuted it."*
 
+<!--
+The twenty-two percent egress pattern looked exactly like OVN conntrack dropping non-established flows—the AI kept that hypothesis organized and we ovs-ofctl'd every worker. The drops were real, but the root cause wasn't OVN; it was GCP firewall. I want to highlight that split: the model held the thread, I supplied the refuting question.
+-->
+
 ---
 layout: section
 class: section-header
@@ -570,6 +682,10 @@ class: section-header
 
 # Section 6
 ## Novel Debugging Techniques
+
+<!--
+Here's the fun tooling part—MCP isn't just for Kubernetes; it's how we scaled packet-level debugging without losing our minds.
+-->
 
 ---
 
@@ -592,6 +708,10 @@ kubectl exec -n openshift-ovn-kubernetes \
 
 > *"Without tmux MCP, this is 5 separate terminal tabs and a lot of context switching."*
 
+<!--
+Egress was flaky—about twenty-two percent success—and we needed to see whether every worker behaved the same. tmux MCP fanned kubectl exec tcpdump across five ovnkube-node pods at once; each pane is a worker. Without that, I'm alt-tabbing until I miss the pattern.
+-->
+
 ---
 
 # Wireshark MCP: Querying PCAPs Programmatically
@@ -609,6 +729,10 @@ wireshark.query(
 - **Confirmed:** return traffic was arriving at the wrong worker (ECMP state mismatch)
 
 > *"The PCAP told the story. The MCP let the AI read it directly."*
+
+<!--
+Wireshark MCP let us query the saved egress PCAP programmatically—retransmissions clustered on workers that didn't own the active BGP path, which pointed at ECMP return-path mismatch. The PCAP already had the story; the MCP meant the agent could read it without me hand-copying dissectors.
+-->
 
 ---
 
@@ -631,6 +755,10 @@ graph TD
 
 > *"tcpdump on an OVN-K worker shows nothing for CUDN pod traffic. OVS intercepts at the rx_handler level, before AF_PACKET. You need `ovs-ofctl` or `ovs-appctl` to see the actual datapath."*
 
+<!--
+This slide is why we burned time "not seeing" traffic: OVS grabs packets before AF_PACKET, so tcpdump looks blind on CUDN VM paths even when the datapath is busy. When someone says "I tcpdump'd the worker and saw nothing," this is the lecture to give—use OVS tools or you're debugging air.
+-->
+
 ---
 
 # Canvas → Slidev: Animated Packet Flows
@@ -642,6 +770,10 @@ For this presentation, they are rebuilt natively as Vue components.
 
 <PacketFlowEcmp />
 
+<!--
+We first built these flows as HTML canvas experiments; for this deck they're Vue components in Slidev. Land the scenario: ECMP sends the return to a worker that isn't the one that originated the session—classic asymmetric path—and the animation is the teaching prop.
+-->
+
 ---
 
 # Canvas → Slidev: The Success Path
@@ -650,6 +782,10 @@ For this presentation, they are rebuilt natively as Vue components.
 
 <PacketFlowSuccess />
 
+<!--
+After the firewall fix, return traffic can hit any worker handling the return path—no more silent drops from a too-narrow rule. Pair this mentally with the previous slide: same ECMP topology, different edge behavior once the hub allows the real return sources.
+-->
+
 ---
 layout: section
 class: section-header
@@ -657,6 +793,10 @@ class: section-header
 
 # Section 7
 ## The Investigation: Finding the Smoking Gun
+
+<!--
+This is the week-long mystery: about twenty-two percent success from CUDN VMs on cz-demo1, clean OVN flows, BGP up—until one firewall rule change made it fifty out of fifty.
+-->
 
 ---
 
@@ -674,6 +814,10 @@ ct_state=-trk,ip actions=ct(table=...)
 ct_state=+trk+est,ip actions=resubmit(,...)
 ct_state=+trk-est,ip actions=drop   # ← suspected culprit
 ```
+
+<!--
+Symptom recap: intermittent internet egress from CUDN VMs—roughly twenty-two percent—while control-plane paths looked fine. Our first read was OVN conntrack dropping non-established traffic; the flow snippet on screen is what made that hypothesis feel honest.
+-->
 
 ---
 
@@ -695,6 +839,10 @@ graph LR
   style A fill:#EE0000,color:white
   style C fill:#5BA352,color:white
 ```
+
+<!--
+I stood up czvirt on ROSA HCP—same OCP 4.21.9, same OVN tables, same FRR idea, but single-active BGP and one hundred percent egress. I kept asking: if ROSA uses single-active routing, why does it still work? The diff wasn't OVN—it was AWS allowing broad return traffic via rosa-virt-allow-from-ALL-sg while our GCP hub rule only trusted the spoke CIDR.
+-->
 
 ---
 
@@ -722,6 +870,10 @@ resource "google_compute_firewall" "allow_return_traffic" {
 
 **Verification:** 50/50 requests = 100% success. Immediately.
 
+<!--
+The question I actually asked out loud was whether GCP's stateful edge was the problem—not OVN. The hub rule cz-demo1-hub-to-spoke-return only allowed source 10.20.0.0/24; internet return isn't from that range. One Terraform firewall opening 0.0.0.0/0 to the workers turned fifty-fifty curls into fifty-fifty successes, immediately—that's the smoking gun.
+-->
+
 ---
 
 # Before / After: Firewall Rule
@@ -748,6 +900,10 @@ graph TD
   style x1 fill:#EE0000,color:white
 ```
 
+<!--
+Use this slide to narrate the luck versus structure story: before, most return packets hit a firewall that only liked the spoke subnet, so you saw roughly twenty-two percent "lucky" ECMP paths; after, the rule admits real internet sources and the diagram is boring green checkmarks.
+-->
+
 ---
 layout: section
 class: section-header
@@ -755,6 +911,10 @@ class: section-header
 
 # Section 8
 ## Human in the Loop
+
+<!--
+I'll get personal for a minute—these weren't heroic monologues; they were short interventions that redirected weeks of agent effort.
+-->
 
 ---
 
@@ -773,6 +933,10 @@ class: section-header
 
 > *"The AI uses context you give it. The human decides what context is worth surfacing."*
 
+<!--
+These rows are the actual phrases I remember: "do nothing" killed a bad branch early; "stop talking about EgressIP" ended a solved tangent; "is it the GCP stateful firewall?" opened the fix; demanding validated commands changed how the agent behaved permanently; "if ROSA works, why?" forced the cross-cloud compare.
+-->
+
 ---
 
 # Daniel Axelrod: The External Human in the Loop
@@ -784,6 +948,10 @@ A Slack thread turned into three architectural changes:
 3. **Terminus-2 link** — reference to Harbor's tmux-based agent led directly to tmux MCP adoption (same day)
 
 > *"Expert practitioners drop high-signal hints in casual conversation. Learn to hear them."*
+
+<!--
+Daniel Axelrod wasn't in the Cursor sessions, but Slack from him changed architecture three times: all workers as BGP peers instead of single-active, exec-then-SSH for debugging inside CUDN pods, and a link to Harbor's Terminus-2 tmux agent—which sent me to tmux MCP the same day.
+-->
 
 ---
 
@@ -812,6 +980,10 @@ A Slack thread turned into three architectural changes:
   </template>
 </RhTwoColumn>
 
+<!--
+Left column is what the agent scaled: long-horizon context, parallel captures, Terraform, hypotheses, self-review. Right column is what still needs me: noticing ROSA versus GCP firewall semantics, stopping false paths, picking which Slack thread matters, and asking the one question that collapses the search space.
+-->
+
 ---
 layout: section
 class: section-header
@@ -819,6 +991,10 @@ class: section-header
 
 # Section 9
 ## What We Produced
+
+<!--
+If you came for deliverables, this is the receipt slide—provider, operator, docs, and the knowledge base we leaned on for sixty-five sessions.
+-->
 
 ---
 
@@ -846,6 +1022,10 @@ class: section-header
 </div>
 </div>
 
+<!--
+Terraform provider, full BGP reference with routing.osd.redhat.com v1alpha1, CI on UBI, KNOWLEDGE.md and ARCHITECTURE.md, the BGP dummies guide, PCAPs and Wireshark filters—and this deck, which we regenerated from the same artifacts the team already trusted.
+-->
+
 ---
 layout: section
 class: section-header
@@ -853,6 +1033,10 @@ class: section-header
 
 # Section 10
 ## Takeaways
+
+<!--
+I'll close with patterns you can steal tomorrow—scaffolding first, tools with real cluster and PCAP access, knowledge with scores, context hygiene, and the shifted human job description.
+-->
 
 ---
 
@@ -863,6 +1047,10 @@ class: section-header
 3. **Manage knowledge deliberately** — `KNOWLEDGE.md` with confidence scores retained context across 65 sessions
 4. **Manage context actively** — don't let sessions exceed 50%; start fresh; dispatch sub-agents
 5. **The human's role shifts** — from writing code to providing judgment, direction, and domain authority
+
+<!--
+If you remember five things: scaffold before code; give the agent MCPs so it isn't guessing blind; run KNOWLEDGE.md like a lab notebook; cap context and restart; accept that your job is judgment and domain authority, not typing the most lines.
+-->
 
 ---
 
@@ -879,6 +1067,10 @@ class: section-header
     ['Keel / AGENTS.md', 'Agent scaffolding — the environment that made discipline possible'],
   ]"
 />
+
+<!--
+This table is the stack we actually used—Kubernetes MCP for live cluster truth, tmux and Wireshark MCPs for parallel and programmatic packet work, Context7 for docs at decision time, Slidev for teaching artifacts, Keel for the rule system underneath it all.
+-->
 
 ---
 layout: center
@@ -898,3 +1090,7 @@ You're engineering an environment —<br />and working inside it together.
 [agentmdx.com](https://agentmdx.com)
 
 </div>
+
+<!--
+Leave them with this: the win wasn't a smarter model—it was engineering the environment—AGENTS.md, Keel, MCPs, KNOWLEDGE.md—so the model could behave like a senior engineer. If you remember one line after today, make it the one on screen: you're not prompting an AI; you're engineering an environment and working inside it together. Thank you.
+-->
