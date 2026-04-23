@@ -1,5 +1,4 @@
 node_modules/
 dist/
-# Speaker photos — drop real images here, not tracked in git
+# Placeholder speaker photo (replaced by paul-bio.png)
 public/paul.jpg
-public/paul.png

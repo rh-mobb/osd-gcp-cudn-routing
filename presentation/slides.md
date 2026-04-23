@@ -31,7 +31,7 @@ Welcome everyone. I'm Paul Czarkowski, a Managed OpenShift Black Belt at Red Hat
 <div class="cols-2 mt-4">
 <div class="flex flex-col items-center text-center">
 
-<img src="/paul.jpg" alt="Paul Czarkowski" class="w-32 h-32 rounded-full object-cover mb-4 border-2 border-[var(--rh-red)]" />
+<img src="/paul-bio.png" alt="Paul Czarkowski" class="w-36 h-36 rounded-full object-cover object-top mb-4 border-2 border-[var(--rh-red)]" />
 
 ### Paul Czarkowski
 <div class="rh-tag mb-3">Human</div>
