@@ -130,8 +130,26 @@ resource "google_compute_instance_template" "nat_gw" {
       systemctl enable nftables
       nft -f /etc/sysconfig/nftables.conf
 
+      # Network debug tools — installed once at first boot.
+      #   tcpdump        packet capture on eth0/gif0 for egress/DNAT debugging
+      #   conntrack-tools  inspect/flush conntrack table: conntrack -L -n -p tcp
+      #   bind-utils     dig / nslookup / host for DNS verification
+      #   iperf3         throughput and RTT measurement to/from spoke or internet
+      #   nmap-ncat      nc for raw TCP/UDP port reachability probes
+      #   net-tools      netstat -natp (familiar conntrack spot-check)
+      #   ethtool        NIC ring / queue / offload stats (RSS, GRO inspection)
+      dnf install -y \
+        python3 \
+        tcpdump \
+        conntrack-tools \
+        bind-utils \
+        iperf3 \
+        nmap-ncat \
+        net-tools \
+        ethtool \
+        2>/dev/null || true
+
       # Minimal TCP listener for NLB health checks
-      dnf install -y python3 2>/dev/null || yum install -y python3
       nohup python3 -m http.server $HC_PORT --bind 0.0.0.0 >/var/log/hc-http.log 2>&1 &
     EOT
   }

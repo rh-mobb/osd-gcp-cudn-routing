@@ -18,7 +18,7 @@ variable "cluster_name" {
 
 variable "openshift_version" {
   type        = string
-  default     = "4.21.3"
+  default     = "4.21.9"
   description = "OpenShift version (x.y.z)"
 }
 

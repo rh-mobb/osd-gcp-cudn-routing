@@ -30,12 +30,13 @@ MODULES := $(sort $(notdir $(wildcard modules/*/)))
 TF_VARS :=
 EXTRA_TF_VARS ?=
 
-.PHONY: help
+.PHONY: help login
 help:
 	@echo "OSD GCP CUDN routing — BGP reference stack (Terraform + Operator)"
 	@echo ""
 	@echo "  (ILB reference stack and legacy controllers live under archive/ — see archive/README.md.)"
 	@echo ""
+	@echo "  login         oc login using cluster_bgp_routing/ Terraform outputs (api_url, admin creds); retries on failure"
 	@echo "  create        bgp.run + bgp.deploy-operator (GHCR image); prints oc get nodes … + make bgp.e2e reminder (does not run e2e)"
 	@echo "  dev           bgp.run + in-cluster operator build; same reminder as create (does not run e2e)"
 	@echo "  destroy       bgp.destroy-operator + bgp.teardown (full stack teardown; all terraform destroy steps use -auto-approve)"
@@ -43,6 +44,7 @@ help:
 	@echo "  bgp.run       full deploy: WIF, cluster apply (hub VPC + spoke VPC + peering + default route + BGP/NCC/echo VM), oc login, configure-routing.sh"
 	@echo "  bgp.teardown  terraform destroy $(CLUSTER_BGP_DIR)/ then $(WIF_DIR)/ (-auto-approve); run bgp.destroy-operator first if you used the in-cluster operator"
 	@echo "  bgp.e2e       CUDN pod ↔ echo VM checks ($(CLUSTER_BGP_DIR)/; requires oc + gcloud logged in)"
+	@echo "  networking.validate  CUDN e2e + optional virt e2e + optional internet probes (scripts/networking-validation-test.sh)"
 	@echo "  bgp.phase1-baseline  fix-bgp-ra Phase 1: router nodes, RA nodeSelector, FRR CRs, debug-gcp-bgp (oc + terraform + gcloud)"
 	@echo "  bgp.deploy-operator    After bgp.run: IAM + WIF Secret + CRDs + RBAC + BGPRoutingConfig + operator build/rollout"
 	@echo "  bgp.destroy-operator   Delete BGPRoutingConfig (finalizer cleanup), operator resources, CRDs, then IAM terraform destroy"
@@ -50,6 +52,8 @@ help:
 	@echo "  virt.deploy            Hyperdisk pool + StorageClass + VolumeSnapshotClass, then OpenShift Virtualization (CNV)"
 	@echo "  virt.destroy-storage   All KubeVirt VMs first, then PVCs/snapshots/CDI, SC/VSC + standard-csi default; GCP disks in pool + Hyperdisk pool (virt_storage_zone; fallback: all worker zones)"
 	@echo "  virt.e2e               Deploy virt-e2e VMs + virtctl console/ssh hints (default); add --run-tests for full e2e (see scripts/README.md)"
+	@echo "  virt.ssh.bridge        Interactive SSH to VIRT_E2E_VM_NAME_BRIDGE (default virt-e2e-bridge) via netshoot-cudn"
+	@echo "  virt.ssh.masq          Interactive SSH to VIRT_E2E_VM_NAME_MASQ (default virt-e2e-masq) via netshoot-cudn"
 	@echo ""
 	@echo "  operator.build         Compile the operator binary (go build under $(OPERATOR_DIR)/)"
 	@echo "  operator.test          go test ./... under $(OPERATOR_DIR)/"
@@ -82,10 +86,13 @@ help:
 	@echo "See README.md for prerequisites and workflow; scripts/README.md for bgp.run env vars."
 	@echo "Naming: stack.action with dots; multi-word segments use hyphens (e.g. iam.init)."
 
+login:
+	@bash "$(CURDIR)/scripts/oc-login.sh"
+
 CREATE_OPERATOR_IMAGE ?= ghcr.io/rh-mobb/osd-gcp-cudn-routing/bgp-routing-operator:latest
 BGP_OPERATOR_NAMESPACE ?= bgp-routing-system
 
-.PHONY: create dev destroy post-operator-deploy-msg bgp.run bgp.teardown bgp.e2e bgp.phase1-baseline bgp.deploy-operator bgp.destroy-operator
+.PHONY: create dev destroy post-operator-deploy-msg bgp.run bgp.teardown bgp.e2e networking.validate bgp.phase1-baseline bgp.deploy-operator bgp.destroy-operator
 post-operator-deploy-msg:
 	@echo ""
 	@echo "=== Operator deployed ($(BGP_OPERATOR_NAMESPACE)/deployment/bgp-routing-operator) ==="
@@ -93,6 +100,7 @@ post-operator-deploy-msg:
 	@echo "  watch 'oc get nodes -l routing.osd.redhat.com/bgp-router='"
 	@echo "  (Ctrl+C to stop watch.)"
 	@echo "  make bgp.e2e"
+	@echo "  make networking.validate   # CUDN e2e + optional virt e2e (see docs/networking-validation-test-plan.md)"
 
 create:
 	@$(MAKE) bgp.run
@@ -124,6 +132,9 @@ bgp.teardown:
 bgp.e2e:
 	@bash "$(CURDIR)/scripts/e2e-cudn-connectivity.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)"
 
+networking.validate:
+	@bash "$(CURDIR)/scripts/networking-validation-test.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)"
+
 bgp.phase1-baseline:
 	@bash "$(CURDIR)/scripts/bgp-phase1-baseline.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)"
 
@@ -148,7 +159,7 @@ bgp.destroy-operator:
 	@echo "=== bgp.destroy-operator: finished ==="
 
 # ---- OpenShift Virtualization + RWX storage ----
-.PHONY: virt.deploy virt.destroy-storage virt.e2e
+.PHONY: virt.deploy virt.destroy-storage virt.e2e virt.ssh.bridge virt.ssh.masq
 virt.deploy:
 	@bash "$(CURDIR)/scripts/deploy-openshift-virt.sh"
 
@@ -157,6 +168,15 @@ virt.destroy-storage:
 
 virt.e2e:
 	@bash "$(CURDIR)/scripts/e2e-virt-live-migration.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)"
+
+# Interactive SSH to virt-e2e guests (netshoot jump). Override: CUDN_NAMESPACE, VIRT_E2E_VM_NAME_* .
+virt.ssh.bridge:
+	@bash "$(CURDIR)/scripts/virt-ssh.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)" \
+		-n "$(or $(CUDN_NAMESPACE),cudn1)" "$(or $(VIRT_E2E_VM_NAME_BRIDGE),virt-e2e-bridge)"
+
+virt.ssh.masq:
+	@bash "$(CURDIR)/scripts/virt-ssh.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)" \
+		-n "$(or $(CUDN_NAMESPACE),cudn1)" "$(or $(VIRT_E2E_VM_NAME_MASQ),virt-e2e-masq)"
 
 .PHONY: wif.init wif.plan wif.apply wif.destroy wif.undelete-soft-deleted-roles
 wif.init:

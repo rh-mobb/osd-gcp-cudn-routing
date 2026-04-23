@@ -76,9 +76,12 @@ These are merged by MetalLB/FRR admission.
 The workaround is `disable-connected-check` in `spec.raw` FRR config.
 - **EgressIP advertisement from a Layer2 CUDN is not supported.**
 OCP 4.21 Advanced Networking guide: *"Advertising EgressIPs from a user-defined network (CUDN) operating in layer 2 mode are not supported."*
-- **Bridge/l2bridge VMs on a primary Layer2 UDN have no internet egress; masquerade VMs do.** Confidence: high — verified in production April 2026.
-A `bridge: {}` VM on the primary UDN gets a CUDN IP (e.g. `10.100.x.x`) that is directly routable within the VPC and peered networks via BGP-advertised routes, but OVN-K does **not** SNAT that IP for external destinations. GCP has no route back for replies from `8.8.8.8` or any public address. A `masquerade: {}` VM is SNAT'd through the worker node's primary VPC IP, so internet egress works. This is expected: CUDN is designed for stable in-cluster/VPC-routable IPs, not internet egress.
-  **Update (April 2026):** Both bridge and masquerade VMs reach the internet via the hub NAT path with 0% packet loss once the missing spoke VPC return-path firewall rule was added (see below). MTR from both VMs shows 0% loss direct to icanhazip.com (104.16.185.241) confirming reliable end-to-end egress.
+- **Both bridge and masquerade VMs in a primary UDN namespace are equally affected by the ECMP internet egress problem.** Verified in production April 2026.
+Both VM types connect via `networks: [{name: "default", pod: {}}]` (the pod network). In a primary UDN namespace (`cudn1`), the pod network **is** the primary UDN — there is no separate `10.128.x.x` default pod network to escape to.
+  - L2 pod-network attachment (`binding.name: l2bridge` in [`scripts/e2e-virt-live-migration.sh`](scripts/e2e-virt-live-migration.sh), or legacy `bridge: {}`): the VM receives a CUDN IP directly on its `eth0`; traffic exits OVN-K as `src=10.100.0.x`.
+  - `masquerade: {}`: KubeVirt SNATs the VM's internal IP (`10.0.2.2`) to the virt-launcher pod's primary network IP, which in a primary UDN namespace is the CUDN IP (`10.100.0.x`). OVN-K's RouteAdvertisements does not SNAT CUDN IPs further. Traffic also exits as `src=10.100.0.x`.
+In a **non-UDN namespace**, `masquerade` binding would SNAT to a `10.128.x.x` pod IP, OVN-K would further SNAT to the worker VPC IP, and internet egress would work reliably. In a primary UDN namespace that escape hatch does not exist.
+  **Correction (April 2026):** An earlier entry stated "masquerade VMs are SNAT'd through the worker node's primary VPC IP." This was incorrect for primary UDN namespaces. Early test observations where masquerade appeared to work while bridge did not were coincidental ECMP hits, not a structural difference in the egress path.
 
 - **The spoke VPC must allow inbound from the hub egress subnet for CUDN internet egress return traffic.** Verified in production April 2026.
   The spoke VPC firewall had no rule allowing traffic from the hub egress subnet (`10.20.0.0/24`). This caused the hub NAT VMs to successfully masquerade outbound CUDN traffic to the internet, but the return SYN-ACK/reply packets (routed back via `0.0.0.0/0` peering → spoke VPC → Cloud Router ECMP → worker node) were silently dropped at the GCP firewall on the spoke worker. Symptoms: CUDN internet access worked intermittently (~10% of attempts) because GCP's stateful firewall only allowed return packets on the exact node whose outbound flow created the state; with 10-way Cloud Router ECMP, the return landed on the "right" node only ~1 in 10 times. Fix: add a spoke VPC firewall rule allowing all protocols from the hub egress CIDR to all spoke instances. After adding the rule, all 3 hub NAT VMs could ping all CUDN addresses (0% loss) and internet egress became reliable.
@@ -92,7 +95,7 @@ A `bridge: {}` VM on the primary UDN gets a CUDN IP (e.g. `10.100.x.x`) that is 
   - AdminPolicyBasedExternalRoute: Operates on the default (primary) pod network only. Does not affect CUDN secondary interface traffic.
   **Would single-VPC ILB solve it?** Unknown — never tested. The archived `cluster_ilb_routing` e2e tests only covered VPC-to-pod inbound (echo VM ↔ CUDN pod). Internet egress from CUDN pods was not exercised in the ILB PoC. The same fundamental issues would likely apply: Cloud NAT may not apply to CUDN overlay IPs (src=`10.100.0.x` is not a VM subnet IP), and if it does, the return packet still carries an internet source IP and must be delivered to `10.100.0.x` via the VPC route (`next_hop_ilb` → ILB → random worker → same OVN-K ct.est problem).
   **Future fix:** OKEP-5094 (Layer2TransitRouter) introduces EgressIP support for Layer2 primary UDN via a transit router topology. PRs merged upstream Sept–Nov 2025; targeted for OCP 4.22 (not yet GA, April 2026). This would allow assigning an EgressIP to the CUDN namespace, pinning egress to a designated node with stable conntrack state. Availability on OSD/GCP is not confirmed.
-  **Practical guidance:** Use `masquerade` binding for KubeVirt VMs that require internet egress. Reserve CUDN for intra-cluster and VPC-to-pod connectivity where stable pod IPs are needed.
+  **Practical guidance:** Neither `bridge` nor `masquerade` binding provides reliable internet egress for VMs in a primary UDN namespace. Reserve CUDN for intra-cluster and VPC-to-pod connectivity where stable pod IPs are needed.
   Codified in `modules/osd-spoke-vpc` as `google_compute_firewall.hub_to_spoke_return`, enabled via the `hub_egress_cidr` variable.
 
 - **The ECMP + OVN-K conntrack failure is specific to internet-sourced return IPs and does not affect RFC-1918 / private-range traffic.** Verified in production April 2026.
@@ -103,6 +106,20 @@ A `bridge: {}` VM on the primary UDN gets a CUDN IP (e.g. `10.100.x.x`) that is 
   - CUDN pod → VPC/on-prem → return (no internet NAT) — return src is RFC-1918 ✓
   - Any flow where the source IP at the spoke VPC ingress is a private/RFC-1918 address ✓
   The failure is unique to: CUDN pod → internet → hub NAT VM masquerades → DNAT returns with `src=8.8.8.8` → internet public IP hits OVN-K on the wrong worker.
+  **Quantified April 2026 (GCP cluster `cz-demo1`, 1 NAT VM, 5 BGP workers, 6 runs, n=300):** average ~22% success rate, matching the theoretical 1/5 ECMP probability. Individual runs ranged 16%–30%.
+  Full session log: [`docs/debug-internet-egress-2026-04-23.md`](docs/debug-internet-egress-2026-04-23.md). Pcaps in [`references/pcap-2026-04-23/`](references/pcap-2026-04-23/).
+
+- **CUDN return traffic on OVN-K workers is processed entirely inside the OVS kernel datapath and is not observable with standard tcpdump/libpcap from an `oc debug node` pod.** Verified April 2026 (GCP, OCP 4.21, OVN-K).
+  `ens4` (the physical GCP NIC) is registered as an OVS port. The OVS kernel module (`openvswitch.ko`) installs its own `rx_handler` at the netdevice level, intercepting packets before `AF_PACKET` (the socket layer used by libpcap/tcpdump). Traffic that enters the OVS datapath — including SYN-ACKs routed by Cloud Router ECMP to a non-VM worker, and their drop by OVN-K `ct_state=!est` flows — never reaches the Linux socket layer.
+  Interfaces tested, all returning 0 packets during curl tests: `br-ex`, `ens4`, `any`, `ovn-k8s-mp1`.
+  To observe in-OVS drops, use: `ovs-tcpdump` (port mirroring, not available in default debug image), `ovs-ofctl dump-flows br-ex` counters via `openshift-ovn-kubernetes` pods, or eBPF on `ovs_dp_process_packet`. **Confidence: 100%** (exhaustively tested April 2026).
+
+- **CUDN routing on worker nodes uses a dedicated VRF (`mp1-udn-vrf`) and `ovn-k8s-mp1` interface.** Verified April 2026.
+  ```
+  ip route show vrf mp1-udn-vrf
+    10.100.0.0/16 dev ovn-k8s-mp1 proto kernel scope link src 10.100.0.2
+  ```
+  The CUDN prefix is installed in `mp1-udn-vrf` (not the default routing table) with `ovn-k8s-mp1` as the interface. This is used by FRR to build the BGP advertisement to Cloud Router. The actual per-packet forwarding for CUDN traffic is handled by OVS/OVN-K flows, not Linux kernel routing. The default routing table on worker nodes has **no route** for the CUDN prefix. **Confidence: 100%** (confirmed via `ip route show vrf mp1-udn-vrf` on three different worker types: baremetal, worker-a, worker-b, April 2026).
 - **Multiple External Gateways (MEG) are not supported with route advertisements.**
 OCP 4.21 Advanced Networking guide: *"MEG is not supported with this feature."*
 - **CUDN names should be 15 characters or fewer** for VRF device name matching in FRR.
@@ -114,6 +131,7 @@ OCP 4.21 Virtualization guide: *"OpenShift Virtualization on Google Cloud is gen
 Requires specific storage configuration and may need a project allow list for RWX multi-writer on bare metal.
 - **VMs on primary UDN cannot use `virtctl ssh`, `oc port-forward`, or headless services.**
 OCP 4.21 Virtualization guide documents these as explicit limitations.
+- **Ad-hoc SSH to virt-e2e guests:** use **`netshoot-cudn`** on the same CUDN as a jump. [`scripts/virt-ssh.sh`](scripts/virt-ssh.sh) copies **`$CLUSTER_DIR/.virt-e2e/id_ed25519`** into the pod and runs **`ssh`** to **`cloud-user@<guest-ip>`** (interactive, or **`-- <command>`** for one-shots). The matching **public** line must be in **`authorized_keys`** from cloud-init ([`scripts/e2e-virt-live-migration.sh`](scripts/e2e-virt-live-migration.sh)). Guest IP resolution matches **`vmi_probe_ip`** (CUDN prefix from **`terraform output -raw cudn_cidr`** when available). **`make virt.ssh.bridge`** / **`make virt.ssh.masq`** from the repo root invoke **`virt-ssh.sh`** with **`-C cluster_bgp_routing`**. Re-run after **netshoot** is recreated. If **`Permission denied (publickey)`** after regenerating **`id_ed25519`**, the guest disk may still have an old **`authorized_keys`** — recreate the VM or fix keys on the guest. **Confidence: 95%** (aligned with [docs/networking-validation-test-plan.md](docs/networking-validation-test-plan.md) §2.1 and virt e2e probes).
 - **Localnet CUDN: IPAM must be Disabled for VMs.**
 OCP 4.21 Virtualization guide: *"`spec.network.localnet.ipam.mode`… The required value is `Disabled`. OpenShift Virtualization does not support configuring IPAM for virtual machines."*
 - **VMs require RWX PVCs for live migration.**

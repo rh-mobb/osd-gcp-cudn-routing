@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CUDN RFC-1918 Egress — Why VPC Traffic Always Succeeds</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    code {
+      font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+      background: #2a2a2a;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 0.88em;
+      color: #ce9178;
+    }
+    strong { font-weight: 600; }
+    em { font-style: italic; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // ── Design tokens (dark theme) ────────────────────────────────────────────
+    const T = {
+      bg:     { editor: '#1e1e1e', chrome: '#252526' },
+      fill:   { primary: '#2a2a2a', secondary: '#232323', tertiary: '#1a1a1a' },
+      stroke: { primary: '#4a4a4a', secondary: '#333', tertiary: '#2a2a2a' },
+      text:   { primary: '#d4d4d4', secondary: '#9d9d9d', tertiary: '#666' },
+      accent: { primary: '#3794ff' },
+    };
+
+    // ── Layout primitives ─────────────────────────────────────────────────────
+    function Stack({ children, gap = 8, style }) {
+      return <div style={{ display:'flex', flexDirection:'column', gap, ...style }}>{children}</div>;
+    }
+    function Row({ children, gap = 8, align = 'stretch', justify = 'start', style }) {
+      return <div style={{ display:'flex', gap, alignItems: align, justifyContent: justify, flexWrap:'wrap', ...style }}>{children}</div>;
+    }
+    function Grid({ children, columns, gap = 8, style }) {
+      const cols = typeof columns === 'number' ? `repeat(${columns}, minmax(0, 1fr))` : columns;
+      return <div style={{ display:'grid', gridTemplateColumns: cols, gap, ...style }}>{children}</div>;
+    }
+    function H1({ children }) {
+      return <h1 style={{ fontSize:20, fontWeight:600, color: T.text.primary, lineHeight:1.3 }}>{children}</h1>;
+    }
+    function H2({ children }) {
+      return <h2 style={{ fontSize:16, fontWeight:600, color: T.text.primary, lineHeight:1.3 }}>{children}</h2>;
+    }
+    function H3({ children }) {
+      return <h3 style={{ fontSize:13, fontWeight:600, color: T.text.primary, lineHeight:1.3 }}>{children}</h3>;
+    }
+    function Text({ children, tone, size, style }) {
+      const color = tone === 'secondary' ? T.text.secondary : tone === 'tertiary' ? T.text.tertiary : T.text.primary;
+      return <p style={{ color, fontSize: size === 'small' ? 12 : 14, lineHeight:1.6, ...style }}>{children}</p>;
+    }
+    function Stat({ value, label, tone }) {
+      const cols = { success:'#22c55e', error:'#ef4444', warning:'#f59e0b', info:'#3794ff' };
+      const color = tone ? cols[tone] : T.text.primary;
+      return (
+        <div style={{ padding:'12px 14px', background: T.fill.secondary, borderRadius:6, border:`1px solid ${T.stroke.secondary}` }}>
+          <div style={{ fontSize:22, fontWeight:700, color, lineHeight:1 }}>{value}</div>
+          <div style={{ fontSize:11, color: T.text.secondary, marginTop:4, lineHeight:1.3 }}>{label}</div>
+        </div>
+      );
+    }
+    function Table({ headers, rows, rowTone }) {
+      const toneBg = { success:'#0d2118', error:'#2d0e0e' };
+      return (
+        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, fontFamily:'monospace' }}>
+          <thead>
+            <tr>
+              {headers.map((h, i) => (
+                <th key={i} style={{ padding:'6px 10px', textAlign:'left', borderBottom:`1px solid ${T.stroke.primary}`, color: T.text.secondary, fontWeight:600, whiteSpace:'nowrap' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, ri) => {
+              const tone = rowTone ? rowTone[ri] : undefined;
+              return (
+                <tr key={ri} style={{ background: tone ? toneBg[tone] : 'transparent' }}>
+                  {row.map((cell, ci) => (
+                    <td key={ci} style={{ padding:'5px 10px', borderBottom:`1px solid ${T.stroke.tertiary}`, color: T.text.primary }}>{cell}</td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      );
+    }
+    function Divider() {
+      return <hr style={{ border:'none', borderTop:`1px solid ${T.stroke.secondary}` }} />;
+    }
+    function Button({ children, onClick, variant = 'secondary' }) {
+      const s = {
+        primary:   { background:'#0e7dd4', color:'#fff', border:'none' },
+        secondary: { background: T.fill.primary, color: T.text.primary, border:`1px solid ${T.stroke.primary}` },
+        ghost:     { background:'transparent', color: T.text.secondary, border:'none' },
+      }[variant];
+      return <button onClick={onClick} style={{ ...s, padding:'5px 12px', borderRadius:4, cursor:'pointer', fontSize:12, fontFamily:'inherit' }}>{children}</button>;
+    }
+    function Pill({ children, tone }) {
+      const cfg = {
+        success: { bg:'#0d2118', fg:'#4ade80', bd:'#166534' },
+        error:   { bg:'#2d0e0e', fg:'#f87171', bd:'#991b1b' },
+        warning: { bg:'#2d1f0e', fg:'#fbbf24', bd:'#92400e' },
+        info:    { bg:'#0e1d2d', fg:'#60a5fa', bd:'#1e3a5f' },
+      }[tone] || { bg:'#0e1d2d', fg:'#60a5fa', bd:'#1e3a5f' };
+      return (
+        <span style={{ padding:'3px 10px', borderRadius:10, fontSize:11, fontWeight:600, background:cfg.bg, color:cfg.fg, border:`1px solid ${cfg.bd}`, whiteSpace:'nowrap' }}>
+          {children}
+        </span>
+      );
+    }
+
+    // ── Data ──────────────────────────────────────────────────────────────────
+    const COMPARE = [
+      {
+        traffic: 'CUDN VM \u2192 echo VM (VPC host)',
+        returnSrc: '10.0.32.2  (RFC-1918)',
+        ecmpWorker: 'Any of 5',
+        ovnkAction: 'Geneve-forward to l6z4w',
+        result: 'SUCCESS',
+        ok: true,
+      },
+      {
+        traffic: 'CUDN VM \u2192 internet (ifconfig.me)',
+        returnSrc: '34.160.111.145  (public)',
+        ecmpWorker: '1 of 5 correct',
+        ovnkAction: 'ct.est=\u2205 \u2192 DROP',
+        result: 'TIMEOUT (80%)',
+        ok: false,
+      },
+    ];
+
+    const RELIABLE = [
+      ['CUDN pod \u2192 VPC host \u2192 return',     'VPC host IP (RFC-1918)',          '\u2714 Yes'],
+      ['CUDN pod \u2192 peered VPC \u2192 return',   'Peered VPC IP (RFC-1918)',        '\u2714 Yes'],
+      ['VPC host \u2192 CUDN pod (inbound)',          'VPC host IP (RFC-1918)',          '\u2714 Yes'],
+      ['CUDN pod \u2192 on-prem via VPN/IC',         'On-prem IP (RFC-1918)',           '\u2714 Yes'],
+      ['CUDN pod \u2192 internet (hub NAT)',          'Internet IP (public \u2014 post-DNAT)', '\u2717 ~18%'],
+    ];
+
+    // ── Network positions ─────────────────────────────────────────────────────
+    const N = {
+      vm:      { x: 75,  y: 210, label: 'CUDN VM',     sub: '10.100.0.7',     w: 100, h: 40 },
+      l6z4w:   { x: 255, y:  75, label: 'l6z4w',        sub: 'VM\u2019s node',  w: 100, h: 40 },
+      wnl8v:   { x: 255, y: 150, label: 'wnl8v',        sub: '',               w: 100, h: 36 },
+      '6zhtm': { x: 255, y: 215, label: '6zhtm',        sub: '',               w: 100, h: 36 },
+      dbdpm:   { x: 255, y: 280, label: 'dbdpm',        sub: '\u2190 ECMP hit', w: 100, h: 36 },
+      '82fzn': { x: 255, y: 345, label: '82fzn',        sub: '',               w: 100, h: 36 },
+      router:  { x: 455, y: 210, label: 'Cloud Router', sub: 'ECMP (10 paths)', w: 120, h: 40 },
+      echo:    { x: 680, y: 210, label: 'echo VM',      sub: '10.0.32.2',      w: 100, h: 40 },
+    };
+    const WORKERS = ['l6z4w', 'wnl8v', '6zhtm', 'dbdpm', '82fzn'];
+
+    const TOTAL_STEPS = 8;
+    const STEP_MS = 1350;
+    const STEP_LABELS = {
+      0: 'Idle',
+      1: 'HTTP request: CUDN VM \u2192 l6z4w \u2192 Cloud Router',
+      2: 'HTTP request forwarded to echo VM (10.0.32.2)',
+      3: 'Response: echo VM \u2192 Cloud Router (src=10.0.32.2, RFC-1918)',
+      4: 'ECMP routes response to dbdpm (not VM\u2019s node!)',
+      5: 'OVN-K: src=RFC-1918 \u2192 Geneve-forward to l6z4w',
+      6: 'CUDN VM receives response \u2714',
+      7: 'Reset',
+    };
+
+    function lerp(a, b, t) {
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+
+    function NodeBox({ node, highlight }) {
+      const hw = node.w / 2, hh = node.h / 2;
+      let fill = T.fill.secondary, stroke = T.stroke.secondary;
+      if (highlight === 'vm' || highlight === 'worker-vm') { fill = T.fill.primary; stroke = '#22c55e'; }
+      else if (highlight === 'ecmp-hit')  { fill = '#1e2a10'; stroke = '#84cc16'; }
+      else if (highlight === 'router' || highlight === 'echo') { fill = T.fill.primary; stroke = T.accent.primary; }
+      return (
+        <g>
+          <rect x={node.x - hw} y={node.y - hh} width={node.w} height={node.h}
+            rx={4} fill={fill} stroke={stroke} strokeWidth={1.5} />
+          <text x={node.x} y={node.y - 4} textAnchor="middle"
+            fontSize={10} fontWeight="600" fill={T.text.primary} fontFamily="monospace">
+            {node.label}
+          </text>
+          {node.sub && (
+            <text x={node.x} y={node.y + 9} textAnchor="middle"
+              fontSize={8.5} fill={T.text.tertiary} fontFamily="monospace">
+              {node.sub}
+            </text>
+          )}
+        </g>
+      );
+    }
+
+    // ── Main App ──────────────────────────────────────────────────────────────
+    function App() {
+      const [step, setStep] = useState(0);
+      const [playing, setPlaying] = useState(true);
+
+      useEffect(() => {
+        if (!playing) return;
+        const id = setInterval(() => setStep(s => (s + 1) % TOTAL_STEPS), STEP_MS);
+        return () => clearInterval(id);
+      }, [playing]);
+
+      const ecmpWorker = 'dbdpm';
+
+      function getPacket() {
+        const vm = N.vm, rt = N.router, echo = N.echo, dest = N[ecmpWorker], l6 = N.l6z4w;
+        if (step === 0 || step === 7) return null;
+        if (step === 1) {
+          const p = lerp(vm, rt, 0.45);
+          return { cx: p.x, cy: p.y, color: T.accent.primary, label: 'GET /' };
+        }
+        if (step === 2) return { cx: echo.x, cy: echo.y, color: T.accent.primary, label: 'GET /' };
+        if (step === 3) {
+          const p = lerp(echo, rt, 0.55);
+          return { cx: p.x, cy: p.y, color: '#84cc16', label: '200 OK' };
+        }
+        if (step === 4) {
+          const p = lerp(rt, dest, 0.65);
+          return { cx: p.x, cy: p.y, color: '#84cc16', label: '200 OK' };
+        }
+        if (step === 5) {
+          const p = lerp(dest, l6, 0.6);
+          return { cx: p.x, cy: p.y, color: '#22c55e', label: 'Geneve' };
+        }
+        if (step === 6) return { cx: vm.x, cy: vm.y, color: '#22c55e', label: '\u2714 200 OK' };
+        return null;
+      }
+
+      function getHighlight(id) {
+        if (id === 'vm') return 'vm';
+        if (id === 'l6z4w') return 'worker-vm';
+        if (id === 'router' && (step === 1 || step === 3 || step === 4)) return 'router';
+        if (id === 'echo' && (step === 2 || step === 3)) return 'echo';
+        if (id === ecmpWorker && step >= 4 && step <= 5) return 'ecmp-hit';
+        return undefined;
+      }
+
+      const packet = getPacket();
+      const showOvnk = step === 4 || step === 5;
+      const showGeneve = step === 5;
+      const showSuccess = step === 6;
+      const pillTone = step === 6 ? 'success' : step >= 4 ? 'warning' : 'info';
+      const pillText = step === 6 ? 'GENEVE FORWARD \u2714' : step >= 4 ? 'ECMP \u2192 WRONG WORKER' : 'ANIMATING';
+
+      return (
+        <Stack gap={24} style={{ padding: 24, background: T.bg.editor, minHeight: '100vh', maxWidth: 1100, margin: '0 auto' }}>
+
+          {/* Header */}
+          <Row gap={12} align="center" justify="space-between">
+            <Stack gap={4}>
+              <H1>CUDN RFC-1918 Egress &mdash; Why VPC Traffic Always Succeeds</H1>
+              <Text tone="secondary" size="small">
+                Control test &middot; GCP cluster cz-demo1 &middot; 5 000 &times; curl http://10.0.32.2:8080/ &middot; no pcap &middot; 100% success
+              </Text>
+            </Stack>
+            <Row gap={8} align="center">
+              <Pill tone={pillTone}>{pillText}</Pill>
+              <Button variant="secondary" onClick={() => setPlaying(p => !p)}>
+                {playing ? 'Pause' : 'Play'}
+              </Button>
+              <Button variant="ghost" onClick={() => { setStep(0); setPlaying(true); }}>
+                Reset
+              </Button>
+            </Row>
+          </Row>
+
+          {/* Animated diagram */}
+          <div style={{ border: `1px solid ${T.stroke.secondary}`, borderRadius: 6, overflow: 'hidden', background: T.bg.chrome }}>
+            <svg viewBox="0 0 860 420" style={{ width:'100%', height:'auto', display:'block' }}>
+              <style>{`
+                .pkt { transition: cx 1.1s cubic-bezier(.4,0,.2,1), cy 1.1s cubic-bezier(.4,0,.2,1); }
+              `}</style>
+
+              {/* Section labels */}
+              <text x={255} y={17} textAnchor="middle" fontSize={9} fill={T.text.tertiary} fontWeight="600" letterSpacing="1" fontFamily="sans-serif">SPOKE VPC — BGP WORKERS</text>
+              <text x={255} y={27} textAnchor="middle" fontSize={8}  fill={T.text.tertiary} fontFamily="sans-serif">(5 nodes × 2 BGP sessions = 10 ECMP paths)</text>
+              <text x={660} y={17} textAnchor="middle" fontSize={9} fill={T.text.tertiary} fontWeight="600" letterSpacing="1" fontFamily="sans-serif">SPOKE VPC — NODE NETWORK</text>
+
+              {/* Outbound path */}
+              {[[N.vm, N.l6z4w], [N.l6z4w, N.router], [N.router, N.echo]].map(([a, b], i) => {
+                const active = step >= 1 && step <= 3;
+                return (
+                  <line key={i}
+                    x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                    stroke={active ? T.accent.primary : T.stroke.secondary}
+                    strokeWidth={active ? 2 : 1}
+                    strokeDasharray={active ? '0' : '4 3'}
+                    opacity={0.6}
+                  />
+                );
+              })}
+
+              {/* ECMP return paths */}
+              {WORKERS.map(w => {
+                const isHit = w === ecmpWorker && step >= 4;
+                return (
+                  <line key={w}
+                    x1={N.router.x} y1={N.router.y}
+                    x2={N[w].x} y2={N[w].y}
+                    stroke={isHit ? '#84cc16' : T.stroke.tertiary}
+                    strokeWidth={isHit ? 2 : 1}
+                    strokeDasharray="5 4"
+                    opacity={isHit ? 1 : (step >= 3 ? 0.4 : 0.2)}
+                  />
+                );
+              })}
+
+              {/* Geneve tunnel */}
+              <line
+                x1={N[ecmpWorker].x} y1={N[ecmpWorker].y}
+                x2={N.l6z4w.x} y2={N.l6z4w.y}
+                stroke={showGeneve ? '#22c55e' : T.stroke.tertiary}
+                strokeWidth={showGeneve ? 2 : 1}
+                strokeDasharray="3 3"
+                opacity={showGeneve ? 1 : 0.12}
+              />
+              {showGeneve && (
+                <text
+                  x={(N[ecmpWorker].x + N.l6z4w.x) / 2 - 18}
+                  y={(N[ecmpWorker].y + N.l6z4w.y) / 2 - 6}
+                  fontSize={8} fill="#22c55e" fontFamily="monospace" fontWeight="700">
+                  Geneve
+                </text>
+              )}
+
+              {/* Worker bracket */}
+              <line x1={210} y1={55} x2={210} y2={365} stroke={T.stroke.tertiary} strokeWidth={1} opacity={0.3} />
+
+              {/* Nodes */}
+              <NodeBox node={N.vm} highlight={getHighlight('vm')} />
+              {WORKERS.map(w => <NodeBox key={w} node={N[w]} highlight={getHighlight(w)} />)}
+              <NodeBox node={N.router} highlight={getHighlight('router')} />
+              <NodeBox node={N.echo}   highlight={getHighlight('echo')} />
+
+              {/* echo server label */}
+              <text x={N.echo.x} y={N.echo.y + 32} textAnchor="middle"
+                fontSize={8} fill={T.text.tertiary} fontFamily="monospace">
+                python3 -m http.server
+              </text>
+
+              {/* OVN-K accept annotation at dbdpm */}
+              {showOvnk && (
+                <g>
+                  <rect
+                    x={N[ecmpWorker].x + 58} y={N[ecmpWorker].y - 14}
+                    width={155} height={28} rx={4}
+                    fill="#1e2a10" stroke="#84cc16" strokeWidth={1.5}
+                  />
+                  <text
+                    x={N[ecmpWorker].x + 135} y={N[ecmpWorker].y + 5}
+                    textAnchor="middle" fontSize={9.5} fontWeight="700"
+                    fill="#84cc16" fontFamily="monospace">
+                    {step === 5 ? 'Geneve \u2192 l6z4w' : 'src=RFC-1918 \u2714 ALLOW'}
+                  </text>
+                </g>
+              )}
+
+              {/* Success annotation */}
+              {showSuccess && (
+                <g>
+                  <rect x={N.vm.x - 65} y={N.vm.y - 32} width={120} height={24} rx={4}
+                    fill="#0f2e1c" stroke="#22c55e" strokeWidth={1.5} />
+                  <text x={N.vm.x - 5} y={N.vm.y - 14} textAnchor="middle"
+                    fontSize={9.5} fontWeight="700" fill="#22c55e" fontFamily="monospace">
+                    \u2714 200 OK received
+                  </text>
+                </g>
+              )}
+
+              {/* Animated packet */}
+              {packet && (
+                <g>
+                  <circle className="pkt" cx={packet.cx} cy={packet.cy} r={10}
+                    fill={packet.color} opacity={0.9} />
+                  <text x={packet.cx} y={packet.cy - 15}
+                    textAnchor="middle" fontSize={8.5} fontWeight="700"
+                    fill={packet.color} fontFamily="monospace">
+                    {packet.label}
+                  </text>
+                </g>
+              )}
+
+              {/* Step legend */}
+              <rect x={10} y={394} width={840} height={22} rx={3} fill={T.fill.secondary} opacity={0.8} />
+              <text x={20} y={409} fontSize={9} fill={T.text.secondary} fontFamily="monospace">
+                {`Step ${step}  \u203a  ${STEP_LABELS[step] || ''}`}
+              </text>
+            </svg>
+          </div>
+
+          {/* Stats */}
+          <H2>Control Test Results &mdash; no pcap, empirical counts only</H2>
+          <Grid columns={4} gap={12}>
+            <Stat value="5 000 / 5 000" label="Requests succeeded"        tone="success" />
+            <Stat value="100%"          label="Success rate"              tone="success" />
+            <Stat value="0"             label="Timeouts / drops"          />
+            <Stat value="18%"           label="Internet egress (contrast)" tone="error" />
+          </Grid>
+
+          <Divider />
+
+          <Grid columns="1fr 1.6fr" gap={24}>
+            <Stack gap={12}>
+              <H3>Why RFC-1918 return traffic always works</H3>
+              <Text size="small">
+                The echo VM responds from <code>src=10.0.32.2</code> &mdash; a private RFC-1918
+                address. Cloud Router still applies ECMP, routing that return packet to a{' '}
+                <strong>random one of the 5 workers</strong>. In the animation it always lands on{' '}
+                <code>dbdpm</code>, not <code>l6z4w</code> where the VM lives.
+              </Text>
+              <Text size="small">
+                OVN-K&rsquo;s treatment of RFC-1918 sources is fundamentally different: it does{' '}
+                <strong>not</strong> require a local <code>ct.est</code> entry. Instead it accepts
+                the packet as a legitimate inbound connection and{' '}
+                <strong>Geneve-tunnels it</strong> across the OVN Layer2 overlay to{' '}
+                <code>l6z4w</code>, the worker that holds the VM.
+              </Text>
+              <Text size="small">
+                For internet traffic, <code>src=34.160.111.145</code> (public IP) triggers the
+                conntrack check. OVN-K finds <code>ct.est=&empty;</code> on any worker other than
+                the originating one and <strong>silently drops</strong> the packet. The Geneve
+                forwarding path is never reached.
+              </Text>
+              <Grid columns={2} gap={8} style={{ marginTop: 4 }}>
+                <Stat value="RFC-1918" label="Geneve-forward \u2714 any worker" tone="success" />
+                <Stat value="Public IP" label="ct.est check \u2192 drops" tone="error" />
+              </Grid>
+            </Stack>
+
+            <Stack gap={16}>
+              <Stack gap={8}>
+                <H3>Path comparison</H3>
+                <Table
+                  headers={['Traffic', 'Return src', 'ECMP worker', 'OVN-K action', 'Result']}
+                  rows={COMPARE.map(c => [c.traffic, c.returnSrc, c.ecmpWorker, c.ovnkAction, c.result])}
+                  rowTone={COMPARE.map(c => c.ok ? 'success' : 'error')}
+                />
+              </Stack>
+
+              <Divider />
+
+              <Stack gap={8}>
+                <H3>Reliable traffic patterns (RFC-1918 return source)</H3>
+                <Table
+                  headers={['Pattern', 'Return source IP', 'Reliable?']}
+                  rows={RELIABLE}
+                  rowTone={['success', 'success', 'success', 'success', 'error']}
+                />
+                <Text size="small" tone="secondary">
+                  The single failing pattern is internet egress: the hub NAT VM DNAT&rsquo;s the
+                  return packet back to the CUDN IP but preserves the internet source address,
+                  which then hits OVN-K&rsquo;s conntrack enforcement on the wrong worker.
+                </Text>
+              </Stack>
+            </Stack>
+          </Grid>
+
+          <Divider />
+
+          <Text size="small" tone="tertiary">
+            Control test: 5 000 &times; <code>curl http://10.0.32.2:8080/</code> from{' '}
+            <code>virt-e2e-bridge</code> (10.100.0.7) &nbsp;&middot;&nbsp;
+            No pcap captured &mdash; empirical counts only &nbsp;&middot;&nbsp;
+            Cluster: cz-demo1 (OSD/GCP us-central1) &middot; 2026-04-23
+          </Text>
+        </Stack>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

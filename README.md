@@ -108,6 +108,7 @@ Convention: **`stack.action`** separated by dots; multi-word segments use hyphen
 | `operator.build` / `operator.test` / `operator.generate` / `operator.manifests` / `operator.docker-build` | Operator — [operator/README.md](operator/README.md) |
 | `iam.*` / `iam.credentials` | BGP operator GCP SA + WIF IAM ([`controller_gcp_iam/`](controller_gcp_iam/README.md)) / generate `credential-config.json` ([`scripts/bgp-controller-gcp-credentials.sh`](scripts/bgp-controller-gcp-credentials.sh)) |
 | `bgp.e2e` | Run [`scripts/e2e-cudn-connectivity.sh`](scripts/e2e-cudn-connectivity.sh) against **`cluster_bgp_routing/`** |
+| `networking.validate` | Run [`scripts/networking-validation-test.sh`](scripts/networking-validation-test.sh): CUDN e2e + **full** virt e2e (migrations / probes) + optional internet probes; **`--virt-hints-only`** for VM deploy only ([`docs/networking-validation-test-plan.md`](docs/networking-validation-test-plan.md)) |
 | `bgp.phase1-baseline` | [`scripts/bgp-phase1-baseline.sh`](scripts/bgp-phase1-baseline.sh) — Phase 1 in [references/fix-bgp-ra.md](references/fix-bgp-ra.md) |
 | `init`, `plan`, `apply`, `cluster.destroy` | **`cluster_bgp_routing/`** Terraform only (same root as **`bgp.init`** / **`bgp.apply`**) |
 | `bgp.init`, `bgp.plan`, `bgp.apply` | **`cluster_bgp_routing/`** Terraform only (use **`make bgp.teardown`** for full stack teardown) |

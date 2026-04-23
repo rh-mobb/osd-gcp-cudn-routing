@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CUDN Internet Egress — ECMP + OVN-K Conntrack Drop</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    code {
+      font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+      background: #2a2a2a;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 0.88em;
+      color: #ce9178;
+    }
+    strong { font-weight: 600; }
+    em { font-style: italic; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ── Minimal design-system components (dark theme) ──────────────────────────
+    const T = {
+      bg:     { editor: '#1e1e1e', chrome: '#252526', elevated: '#2d2d2d' },
+      fill:   { primary: '#2a2a2a', secondary: '#232323', tertiary: '#1a1a1a' },
+      stroke: { primary: '#4a4a4a', secondary: '#333', tertiary: '#2a2a2a' },
+      text:   { primary: '#d4d4d4', secondary: '#9d9d9d', tertiary: '#666', onAccent: '#fff' },
+      accent: { primary: '#3794ff', control: '#0e7dd4' },
+    };
+
+    function Stack({ children, gap = 8, style }) {
+      return <div style={{ display:'flex', flexDirection:'column', gap, ...style }}>{children}</div>;
+    }
+    function Row({ children, gap = 8, align = 'stretch', justify = 'start', style }) {
+      return (
+        <div style={{ display:'flex', flexDirection:'row', gap, alignItems: align, justifyContent: justify, ...style }}>
+          {children}
+        </div>
+      );
+    }
+    function Grid({ children, columns, gap = 8, align, style }) {
+      const cols = typeof columns === 'number' ? `repeat(${columns}, minmax(0, 1fr))` : columns;
+      return (
+        <div style={{ display:'grid', gridTemplateColumns: cols, gap, alignItems: align, ...style }}>
+          {children}
+        </div>
+      );
+    }
+    function H1({ children }) {
+      return <h1 style={{ fontSize:20, fontWeight:600, color: T.text.primary, lineHeight:1.3 }}>{children}</h1>;
+    }
+    function H2({ children }) {
+      return <h2 style={{ fontSize:16, fontWeight:600, color: T.text.primary, lineHeight:1.3 }}>{children}</h2>;
+    }
+    function H3({ children }) {
+      return <h3 style={{ fontSize:13, fontWeight:600, color: T.text.primary, lineHeight:1.3 }}>{children}</h3>;
+    }
+    function Text({ children, tone, size, style }) {
+      const color = tone === 'secondary' ? T.text.secondary
+                  : tone === 'tertiary'  ? T.text.tertiary
+                  : T.text.primary;
+      const fontSize = size === 'small' ? 12 : 14;
+      return <p style={{ color, fontSize, lineHeight:1.6, ...style }}>{children}</p>;
+    }
+    function Stat({ value, label, tone }) {
+      const cols = { success:'#22c55e', error:'#ef4444', warning:'#f59e0b', info:'#3794ff' };
+      const color = tone ? cols[tone] : T.text.primary;
+      return (
+        <div style={{ padding:'12px 14px', background: T.fill.secondary, borderRadius:6, border:`1px solid ${T.stroke.secondary}` }}>
+          <div style={{ fontSize:22, fontWeight:700, color, lineHeight:1 }}>{value}</div>
+          <div style={{ fontSize:11, color: T.text.secondary, marginTop:4, lineHeight:1.3 }}>{label}</div>
+        </div>
+      );
+    }
+    function Table({ headers, rows, rowTone }) {
+      const toneBg = { success:'#0d2118', error:'#2d0e0e' };
+      return (
+        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, fontFamily:'monospace' }}>
+          <thead>
+            <tr>
+              {headers.map((h, i) => (
+                <th key={i} style={{ padding:'6px 10px', textAlign:'left', borderBottom:`1px solid ${T.stroke.primary}`, color: T.text.secondary, fontWeight:600, whiteSpace:'nowrap' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, ri) => {
+              const tone = rowTone ? rowTone[ri] : undefined;
+              return (
+                <tr key={ri} style={{ background: tone ? toneBg[tone] : 'transparent' }}>
+                  {row.map((cell, ci) => (
+                    <td key={ci} style={{ padding:'5px 10px', borderBottom:`1px solid ${T.stroke.tertiary}`, color: T.text.primary }}>{cell}</td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      );
+    }
+    function Divider() {
+      return <hr style={{ border:'none', borderTop:`1px solid ${T.stroke.secondary}` }} />;
+    }
+    function Button({ children, onClick, variant = 'secondary' }) {
+      const base = { padding:'5px 12px', borderRadius:4, cursor:'pointer', fontSize:12, fontFamily:'inherit', lineHeight:1.4 };
+      const variants = {
+        primary:   { ...base, background:'#0e7dd4', color:'#fff', border:'none' },
+        secondary: { ...base, background: T.fill.primary, color: T.text.primary, border:`1px solid ${T.stroke.primary}` },
+        ghost:     { ...base, background:'transparent', color: T.text.secondary, border:'none' },
+      };
+      return <button onClick={onClick} style={variants[variant] || variants.secondary}>{children}</button>;
+    }
+    function Pill({ children, tone }) {
+      const cfg = {
+        success: { bg:'#0d2118', fg:'#4ade80', bd:'#166534' },
+        error:   { bg:'#2d0e0e', fg:'#f87171', bd:'#991b1b' },
+        warning: { bg:'#2d1f0e', fg:'#fbbf24', bd:'#92400e' },
+        info:    { bg:'#0e1d2d', fg:'#60a5fa', bd:'#1e3a5f' },
+      };
+      const c = cfg[tone] || cfg.info;
+      return (
+        <span style={{ padding:'3px 10px', borderRadius:10, fontSize:11, fontWeight:600, background:c.bg, color:c.fg, border:`1px solid ${c.bd}`, whiteSpace:'nowrap' }}>
+          {children}
+        </span>
+      );
+    }
+
+    // ── Real Wireshark data from gcp-nat-internet-egress-2026-04-23.pcap ────────
+    const PCAP = {
+      packets: 213,
+      retransmissions: 73,
+      resets: 6,
+      outOfOrder: 10,
+      duration: '~90 s',
+      testResult: { total: 50, success: 9, fail: 41 },
+    };
+
+    const CONVOS = [
+      { port: 43514, ok: true,  dur: '18 ms',  syn: '6.003',  retx: 0, bytes: '4 800' },
+      { port: 43530, ok: true,  dur: '21 ms',  syn: '6.026',  retx: 0, bytes: '6 984' },
+      { port: 56266, ok: true,  dur: '33 ms',  syn: '15.068', retx: 0, bytes: '6 789' },
+      { port: 40140, ok: true,  dur: '18 ms',  syn: '27.133', retx: 0, bytes: '6 717' },
+      { port: 50536, ok: false, dur: '31.7 s', syn: '0.000',  retx: 6, bytes: '720'   },
+      { port: 43508, ok: false, dur: '31.6 s', syn: '3.002',  retx: 6, bytes: '720'   },
+      { port: 43542, ok: false, dur: '31.9 s', syn: '6.060',  retx: 6, bytes: '720'   },
+      { port: 43550, ok: false, dur: '31.6 s', syn: '9.066',  retx: 5, bytes: '720'   },
+      { port: 56254, ok: false, dur: '15.6 s', syn: '12.062', retx: 3, bytes: '640'   },
+      { port: 40126, ok: false, dur: '15.6 s', syn: '21.117', retx: 3, bytes: '640'   },
+      { port: 50418, ok: false, dur: '7.1 s',  syn: '30.164', retx: 1, bytes: '560'   },
+      { port: 50436, ok: false, dur: '3.1 s',  syn: '36.171', retx: 0, bytes: '480'   },
+    ];
+
+    // ── Node positions (SVG viewBox 860×460) ─────────────────────────────────────
+    const N = {
+      vm:      { x: 75,  y: 230, label: 'CUDN VM',      sub: '10.100.0.7',      w: 100, h: 40 },
+      l6z4w:   { x: 255, y:  75, label: 'l6z4w',         sub: "VM\u2019s node",  w: 100, h: 40 },
+      wnl8v:   { x: 255, y: 160, label: 'wnl8v',         sub: '',                w: 100, h: 36 },
+      '6zhtm': { x: 255, y: 235, label: '6zhtm',         sub: '',                w: 100, h: 36 },
+      dbdpm:   { x: 255, y: 310, label: 'dbdpm',         sub: '',                w: 100, h: 36 },
+      '82fzn': { x: 255, y: 385, label: '82fzn',         sub: '',                w: 100, h: 36 },
+      router:  { x: 455, y: 230, label: 'Cloud Router',  sub: 'ECMP (10 paths)', w: 120, h: 40 },
+      nat:     { x: 630, y: 230, label: 'NAT VM',        sub: '10.20.0.2',       w: 100, h: 40 },
+      internet:{ x: 795, y: 230, label: 'ifconfig.me',   sub: '34.160.111.145',  w: 110, h: 40 },
+    };
+
+    const WORKERS = ['l6z4w', 'wnl8v', '6zhtm', 'dbdpm', '82fzn'];
+
+    const TOTAL_STEPS = 8;
+    const STEP_MS = 1350;
+
+    const STEP_LABELS = {
+      0: 'Idle',
+      1: "SYN \u2192  l6z4w (VM\u2019s node, outbound)",
+      2: 'SYN  \u2192  Cloud Router \u2192 NAT VM \u2192 Internet',
+      3: 'SYN-ACK  \u2190  Internet \u2192 NAT VM \u2192 Cloud Router',
+      4: 'Cloud Router applies ECMP flow hash',
+      5: 'SYN-ACK delivered via ECMP',
+      6: 'OVN-K verdict',
+      7: 'Reset',
+    };
+
+    function lerp(a, b, t) {
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+
+    // ── NodeBox SVG component ───────────────────────────────────────────────────
+    function NodeBox({ node, highlight }) {
+      const hw = node.w / 2, hh = node.h / 2;
+      let fill = T.fill.secondary;
+      let stroke = T.stroke.secondary;
+
+      if (highlight === 'vm')          { fill = T.fill.primary;  stroke = T.accent.primary; }
+      else if (highlight === 'worker-vm')  { fill = T.fill.primary;  stroke = '#22c55e'; }
+      else if (highlight === 'router') { fill = T.fill.primary;  stroke = T.accent.primary; }
+      else if (highlight === 'drop')   { fill = '#3f1515';       stroke = '#ef4444'; }
+      else if (highlight === 'accept') { fill = '#0f2e1c';       stroke = '#22c55e'; }
+
+      return (
+        <g>
+          <rect x={node.x - hw} y={node.y - hh} width={node.w} height={node.h}
+            rx={4} fill={fill} stroke={stroke} strokeWidth={1.5} />
+          <text x={node.x} y={node.y - 4} textAnchor="middle"
+            fontSize={10} fontWeight="600" fill={T.text.primary} fontFamily="monospace">
+            {node.label}
+          </text>
+          {node.sub && (
+            <text x={node.x} y={node.y + 9} textAnchor="middle"
+              fontSize={8.5} fill={T.text.tertiary} fontFamily="monospace">
+              {node.sub}
+            </text>
+          )}
+        </g>
+      );
+    }
+
+    // ── Main App ───────────────────────────────────────────────────────────────
+    function App() {
+      const [step, setStep] = useState(0);
+      const [playing, setPlaying] = useState(true);
+      const [renderKey, setRenderKey] = useState(0);
+      const selectedWorkerRef = useRef(1); // 0 = l6z4w (success), 1-4 = fail
+
+      useEffect(() => {
+        if (!playing) return;
+        const id = setInterval(() => {
+          setStep(s => {
+            const next = (s + 1) % TOTAL_STEPS;
+            if (next === 0) {
+              // 20% chance of hitting VM's node (matches 2/10 ECMP paths)
+              selectedWorkerRef.current = Math.random() < 0.2 ? 0 : Math.floor(Math.random() * 4) + 1;
+              setRenderKey(k => k + 1);
+            }
+            return next;
+          });
+        }, STEP_MS);
+        return () => clearInterval(id);
+      }, [playing]);
+
+      const workerIdx = selectedWorkerRef.current;
+      const selectedWorker = WORKERS[workerIdx];
+      const isSuccess = workerIdx === 0;
+
+      function getPacket() {
+        const vm = N.vm, l6 = N.l6z4w, rt = N.router, inet = N.internet;
+        const dest = N[selectedWorker];
+        if (step === 0 || step === 7) return null;
+        if (step === 1) {
+          const p = lerp(vm, l6, 0.65);
+          return { cx: p.x, cy: p.y, color: T.accent.primary, label: 'SYN' };
+        }
+        if (step === 2) {
+          return { cx: inet.x, cy: inet.y, color: T.accent.primary, label: 'SYN' };
+        }
+        if (step === 3) {
+          const p = lerp(inet, rt, 0.55);
+          return { cx: p.x, cy: p.y, color: '#f59e0b', label: 'SYN-ACK' };
+        }
+        if (step === 4) {
+          return { cx: rt.x, cy: rt.y, color: '#f59e0b', label: 'ECMP ?' };
+        }
+        if (step === 5) {
+          const p = lerp(rt, dest, 0.6);
+          return { cx: p.x, cy: p.y, color: isSuccess ? '#22c55e' : '#ef4444', label: 'SYN-ACK' };
+        }
+        if (step === 6) {
+          return { cx: dest.x, cy: dest.y, color: isSuccess ? '#22c55e' : '#ef4444', label: isSuccess ? 'ACK' : 'DROP' };
+        }
+        return null;
+      }
+
+      function getHighlight(id) {
+        if (id === 'vm') return 'vm';
+        if (id === 'l6z4w') return 'worker-vm';
+        if (id === 'router' && step === 4) return 'router';
+        if (step === 6 && id === selectedWorker) return isSuccess ? 'accept' : 'drop';
+        return undefined;
+      }
+
+      function returnColor(w) {
+        if (step >= 5 && w === selectedWorker) return isSuccess ? '#22c55e' : '#ef4444';
+        return T.stroke.tertiary;
+      }
+      function returnOpacity(w) {
+        if (step < 4) return 0.2;
+        if (step >= 5 && w === selectedWorker) return 1;
+        if (step === 4) return 0.45;
+        return 0.18;
+      }
+
+      const packet = getPacket();
+      const outcomeBadge = step === 6
+        ? (isSuccess
+            ? { text: 'ct.est \u2713  ACCEPTED', color: '#22c55e', bg: '#0f2e1c' }
+            : { text: 'ct.est=\u2205  DROPPED', color: '#ef4444', bg: '#3f1515' })
+        : null;
+
+      const successRate = ((PCAP.testResult.success / PCAP.testResult.total) * 100).toFixed(0);
+      const pillTone = isSuccess && step >= 5 ? 'success' : step >= 5 ? 'error' : 'info';
+      const pillText = step >= 5 ? (isSuccess ? 'SUCCESS' : 'ECMP MISS') : (STEP_LABELS[step] ? 'ANIMATING' : 'IDLE');
+
+      return (
+        <Stack gap={24} style={{ padding: 24, background: T.bg.editor, minHeight: '100vh', maxWidth: 1100, margin: '0 auto' }}>
+
+          {/* Header */}
+          <Row gap={12} align="center" justify="space-between" style={{ flexWrap: 'wrap' }}>
+            <Stack gap={4}>
+              <H1>CUDN Internet Egress — ECMP + OVN-K Conntrack Drop</H1>
+              <Text tone="secondary" size="small">
+                GCP cluster cz-demo1 &middot; Capture: gcp-nat-internet-egress-2026-04-23.pcap &middot; 213 pkts &middot; 39 KB
+              </Text>
+            </Stack>
+            <Row gap={8} align="center">
+              <Pill tone={pillTone}>{pillText}</Pill>
+              <Button variant="secondary" onClick={() => setPlaying(p => !p)}>
+                {playing ? 'Pause' : 'Play'}
+              </Button>
+              <Button variant="ghost" onClick={() => { setStep(0); setPlaying(true); }}>
+                Reset
+              </Button>
+            </Row>
+          </Row>
+
+          {/* Animated topology */}
+          <div style={{ border: `1px solid ${T.stroke.secondary}`, borderRadius: 6, overflow: 'hidden', background: T.bg.chrome }}>
+            <svg viewBox="0 0 860 460" style={{ width: '100%', height: 'auto', display: 'block' }}>
+              <style>{`
+                .pkt { transition: cx 1.1s cubic-bezier(.4,0,.2,1), cy 1.1s cubic-bezier(.4,0,.2,1); }
+                .rl  { transition: stroke 0.4s, opacity 0.4s; }
+              `}</style>
+
+              {/* Section labels */}
+              <text x={255} y={18} textAnchor="middle" fontSize={9} fill={T.text.tertiary} fontWeight="600" letterSpacing="1" fontFamily="sans-serif">SPOKE VPC — BGP WORKERS</text>
+              <text x={255} y={29} textAnchor="middle" fontSize={8}  fill={T.text.tertiary} fontFamily="sans-serif">(5 nodes × 2 BGP sessions = 10 ECMP paths)</text>
+              <text x={630} y={18} textAnchor="middle" fontSize={9} fill={T.text.tertiary} fontWeight="600" letterSpacing="1" fontFamily="sans-serif">HUB VPC</text>
+
+              {/* Outbound path highlight */}
+              {['vm→l6', 'l6→rt', 'rt→nat'].map((_, i) => {
+                const pairs = [
+                  [N.vm, N.l6z4w],
+                  [N.l6z4w, N.router],
+                  [N.router, N.nat],
+                ];
+                const [a, b] = pairs[i];
+                const active = step >= 1 && step <= 3;
+                return (
+                  <line key={i}
+                    x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                    stroke={active ? T.accent.primary : T.stroke.secondary}
+                    strokeWidth={active ? 2 : 1}
+                    strokeDasharray={active ? '0' : '4 3'}
+                    opacity={0.6}
+                  />
+                );
+              })}
+              <line x1={N.nat.x} y1={N.nat.y} x2={N.internet.x} y2={N.internet.y}
+                stroke={T.stroke.secondary} strokeWidth={1.5} opacity={0.7} />
+
+              {/* ECMP return paths */}
+              {WORKERS.map(w => (
+                <line key={w} className="rl"
+                  x1={N.router.x} y1={N.router.y}
+                  x2={N[w].x} y2={N[w].y}
+                  stroke={returnColor(w)}
+                  strokeWidth={w === selectedWorker && step >= 5 ? 2 : 1}
+                  strokeDasharray="5 4"
+                  opacity={returnOpacity(w)}
+                />
+              ))}
+
+              {/* Worker bracket */}
+              <line x1={210} y1={55} x2={210} y2={405} stroke={T.stroke.tertiary} strokeWidth={1} opacity={0.35} />
+
+              {/* Nodes */}
+              <NodeBox node={N.vm} highlight={getHighlight('vm')} />
+              {WORKERS.map(w => <NodeBox key={w} node={N[w]} highlight={getHighlight(w)} />)}
+              <NodeBox node={N.router} highlight={getHighlight('router')} />
+              <NodeBox node={N.nat} />
+              <NodeBox node={N.internet} />
+
+              {/* MASQUERADE label */}
+              <text x={N.nat.x} y={N.nat.y + 32} textAnchor="middle" fontSize={8} fill={T.text.tertiary} fontFamily="monospace">
+                MASQUERADE / DNAT
+              </text>
+
+              {/* Animated packet */}
+              {packet && (
+                <g>
+                  <circle className="pkt" cx={packet.cx} cy={packet.cy} r={10}
+                    fill={packet.color} opacity={0.9} />
+                  <text x={packet.cx} y={packet.cy - 15}
+                    textAnchor="middle" fontSize={8.5} fontWeight="700"
+                    fill={packet.color} fontFamily="monospace">
+                    {packet.label}
+                  </text>
+                </g>
+              )}
+
+              {/* Outcome badge */}
+              {outcomeBadge && N[selectedWorker] && (
+                <g>
+                  <rect
+                    x={N[selectedWorker].x + 58}
+                    y={N[selectedWorker].y - 14}
+                    width={132} height={28} rx={4}
+                    fill={outcomeBadge.bg}
+                    stroke={outcomeBadge.color}
+                    strokeWidth={1.5}
+                  />
+                  <text
+                    x={N[selectedWorker].x + 124}
+                    y={N[selectedWorker].y + 5}
+                    textAnchor="middle" fontSize={9.5} fontWeight="700"
+                    fill={outcomeBadge.color} fontFamily="monospace">
+                    {outcomeBadge.text}
+                  </text>
+                </g>
+              )}
+
+              {/* Step legend bar */}
+              <rect x={10} y={432} width={840} height={22} rx={3} fill={T.fill.secondary} opacity={0.8} />
+              <text x={20} y={447} fontSize={9} fill={T.text.secondary} fontFamily="monospace">
+                {`Step ${step}  \u203a  ${STEP_LABELS[step] || ''}`}
+              </text>
+              {step >= 4 && (
+                <text x={700} y={447} fontSize={9} fill={T.text.tertiary} fontFamily="monospace" textAnchor="end">
+                  {`ECMP \u2192 ${selectedWorker}${isSuccess ? '  (VM\u2019s node)' : '  (no ct.est)'}`}
+                </text>
+              )}
+            </svg>
+          </div>
+
+          {/* Stats */}
+          <H2>Pcap Evidence — {PCAP.packets} packets &middot; {PCAP.duration}</H2>
+          <Grid columns={5} gap={12}>
+            <Stat value={`${PCAP.testResult.fail} / ${PCAP.testResult.total}`} label="Connections timed out" tone="error" />
+            <Stat value={`${successRate}%`} label="Success rate (≈ 2/10 ECMP)" tone="warning" />
+            <Stat value={String(PCAP.retransmissions)} label="TCP retransmissions" tone="warning" />
+            <Stat value={String(PCAP.resets)} label="TCP resets" />
+            <Stat value="100%" label="RFC-1918 control (n=5 050)" tone="success" />
+          </Grid>
+
+          <Divider />
+
+          {/* Two-column explanation + table */}
+          <Grid columns="1fr 1.6fr" gap={24}>
+            <Stack gap={12}>
+              <H3>Why ECMP causes failures</H3>
+              <Text size="small">
+                Each <code>curl</code> is a unique TCP flow. Cloud Router applies a deterministic
+                per-flow ECMP hash across <strong>10 equal-cost paths</strong> (5 BGP workers &times; 2 router
+                interfaces). Only 2 of those 10 paths deliver the SYN-ACK to <code>l6z4w</code> &mdash; the
+                node that holds the VM&rsquo;s conntrack state.
+              </Text>
+              <Text size="small">
+                On any other worker, OVN-K checks <code>ct_state</code> for the returning packet
+                from <code>34.160.111.145</code>. Finding no <code>ct.est</code> entry, OVN-K silently
+                drops it. The server retransmits, but because ECMP hashing is deterministic per
+                5-tuple, every retransmit for the same flow goes to the <em>same wrong worker</em> and
+                is dropped again.
+              </Text>
+              <Text size="small" tone="secondary">
+                The NAT VM pcap confirms: all 50 SYN-ACKs are correctly DNAT&rsquo;d and forwarded
+                toward the spoke VPC. The drop happens inside the OVS kernel datapath on the worker
+                &mdash; invisible to standard <code>tcpdump</code> (<code>AF_PACKET</code> bypassed).
+              </Text>
+              <Grid columns={2} gap={8} style={{ marginTop: 4 }}>
+                <Stat value="2 / 10" label="ECMP paths → l6z4w" tone="success" />
+                <Stat value="8 / 10" label="ECMP paths → DROP"  tone="error" />
+              </Grid>
+            </Stack>
+
+            <Stack gap={8}>
+              <H3>Connections — real pcap data</H3>
+              <Table
+                headers={['Port', 'Outcome', 'Duration', 'SYN @ (s)', 'Retransmits', 'Bytes']}
+                rows={CONVOS.map(c => [
+                  String(c.port),
+                  c.ok ? '\u2713 SUCCESS' : '\u2717 TIMEOUT',
+                  c.dur,
+                  c.syn,
+                  String(c.retx),
+                  c.bytes,
+                ])}
+                rowTone={CONVOS.map(c => c.ok ? 'success' : 'error')}
+              />
+              <Text size="small" tone="secondary">
+                Success connections show immediate data exchange (&lt;35&nbsp;ms). Failures show
+                SYN-ACKs retransmitted up to 6&times; before the 3-second <code>curl --max-time</code> fires.
+                ECMP path is fixed per flow: once assigned to a wrong worker, all retransmits go to
+                the same wrong worker.
+              </Text>
+            </Stack>
+          </Grid>
+
+          <Divider />
+
+          <Text size="small" tone="tertiary">
+            Capture: <code>references/pcap-2026-04-23/gcp-nat-internet-egress-2026-04-23.pcap</code>
+            &nbsp;&middot;&nbsp;Cluster: cz-demo1 (OSD/GCP us-central1)&nbsp;&middot;&nbsp;
+            Debug session: <code>docs/debug-internet-egress-2026-04-23.md</code>
+          </Text>
+
+        </Stack>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
