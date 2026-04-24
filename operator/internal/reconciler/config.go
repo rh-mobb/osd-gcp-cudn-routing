@@ -27,6 +27,7 @@ type ReconcilerConfig struct {
 	FRRLabelValue        string
 	ReconcileInterval    time.Duration
 	Debounce             time.Duration
+	MachineNamespace     string
 }
 
 // NodeLabelSelector returns the Kubernetes label selector string for candidate nodes.

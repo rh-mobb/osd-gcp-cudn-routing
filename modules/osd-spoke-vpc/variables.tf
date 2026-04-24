@@ -69,3 +69,17 @@ variable "hub_egress_cidr" {
   default     = null
   description = "CIDR of the hub VPC egress subnet (e.g. 10.20.0.0/24). When set, creates a firewall rule allowing all traffic from hub NAT VMs back into the spoke VPC so that CUDN internet egress return traffic is not blocked."
 }
+
+variable "enable_cudn_egress_return" {
+  type        = bool
+  default     = true
+  description = <<-EOT
+    Allow all inbound traffic (0.0.0.0/0, all protocols) to all instances in the spoke VPC.
+    Required for reliable CUDN internet egress: the GCP VPC stateful firewall drops internet
+    return packets (src=<public-IP>) on BGP workers that did not originate the outbound connection.
+    Enabling this mirrors the AWS rosa-virt-allow-from-ALL-sg pattern and makes internet egress
+    100% reliable regardless of Cloud Router ECMP path.
+    GCP worker network tags are assigned by the OSD installer and are not under our control,
+    so this rule applies VPC-wide rather than to a specific tag subset.
+  EOT
+}

@@ -26,10 +26,13 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -62,6 +65,7 @@ type BGPRoutingConfigReconciler struct {
 // +kubebuilder:rbac:groups=routing.osd.redhat.com,resources=bgprouters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=frrk8s.metallb.io,resources=frrconfigurations,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch;patch;update
 
 func (r *BGPRoutingConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -542,6 +546,10 @@ func specToReconcilerConfig(spec *api.BGPRoutingConfigSpec) *reconciler.Reconcil
 	if debounceSeconds == 0 {
 		debounceSeconds = api.DefaultDebounceSeconds
 	}
+	machineNamespace := spec.MachineNamespace
+	if machineNamespace == "" {
+		machineNamespace = api.DefaultMachineNamespace
+	}
 
 	return &reconciler.ReconcilerConfig{
 		GCPProject:           spec.GCPProject,
@@ -562,22 +570,32 @@ func specToReconcilerConfig(spec *api.BGPRoutingConfigSpec) *reconciler.Reconcil
 		FRRLabelValue:        frrLabelValue,
 		ReconcileInterval:    time.Duration(reconcileSeconds) * time.Second,
 		Debounce:             time.Duration(debounceSeconds) * time.Second,
+		MachineNamespace:     machineNamespace,
 	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *BGPRoutingConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	enqueueCluster := handler.EnqueueRequestsFromMapFunc(
+		func(_ context.Context, _ client.Object) []reconcile.Request {
+			return []reconcile.Request{
+				{NamespacedName: types.NamespacedName{Name: singletonName}},
+			}
+		},
+	)
+
+	machineObj := &unstructured.Unstructured{}
+	machineObj.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   reconciler.MachineGroup,
+		Version: reconciler.MachineVersion,
+		Kind:    reconciler.MachineKind,
+	})
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&api.BGPRoutingConfig{}).
 		Owns(&api.BGPRouter{}).
-		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(
-			func(ctx context.Context, obj client.Object) []reconcile.Request {
-				return []reconcile.Request{
-					{NamespacedName: types.NamespacedName{Name: singletonName}},
-				}
-			},
-		)).
-		WithEventFilter(nodeEventFilter{}).
+		Watches(&corev1.Node{}, enqueueCluster, builder.WithPredicates(nodeEventFilter{})).
+		Watches(machineObj, enqueueCluster, builder.WithPredicates(machineEventFilter{})).
 		Named("bgproutingconfig").
 		Complete(r)
 }
@@ -605,4 +623,28 @@ func (nodeEventFilter) Update(e event.UpdateEvent) bool {
 		return true
 	}
 	return false
+}
+
+// machineEventFilter enqueues on Machine creation/deletion and on transitions that matter
+// for the preTerminate lifecycle hook: deletionTimestamp appearing, or hook list changing.
+type machineEventFilter struct{}
+
+func (machineEventFilter) Create(_ event.CreateEvent) bool   { return true }
+func (machineEventFilter) Delete(_ event.DeleteEvent) bool   { return true }
+func (machineEventFilter) Generic(_ event.GenericEvent) bool { return false }
+
+func (machineEventFilter) Update(e event.UpdateEvent) bool {
+	oldU, ok1 := e.ObjectOld.(*unstructured.Unstructured)
+	newU, ok2 := e.ObjectNew.(*unstructured.Unstructured)
+	if !ok1 || !ok2 {
+		return true
+	}
+	// Enqueue when deletionTimestamp transitions nil → non-nil.
+	if oldU.GetDeletionTimestamp() == nil && newU.GetDeletionTimestamp() != nil {
+		return true
+	}
+	// Enqueue when spec.lifecycleHooks changes (hook added/removed by us or others).
+	oldHooks, _, _ := unstructured.NestedFieldNoCopy(oldU.Object, "spec", "lifecycleHooks")
+	newHooks, _, _ := unstructured.NestedFieldNoCopy(newU.Object, "spec", "lifecycleHooks")
+	return !reflect.DeepEqual(oldHooks, newHooks)
 }

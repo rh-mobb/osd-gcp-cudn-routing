@@ -16,7 +16,7 @@ NAMESPACE="${CUDN_NAMESPACE:-cudn1}"
 ALSO_NAMESPACE=""
 SKIP_CUDN=0
 SKIP_VIRT=0
-# Default: full virt e2e (migrations, ping/curl from netshoot). Set --virt-hints-only for VM deploy + console hints only.
+# Default: full virt (mesh, echo, migrations — e2e-virt-live-migration --run-tests). --virt-hints-only: access-only.
 VIRT_HINTS_ONLY=0
 INTERNET_PROBES=0
 NETVAL_INTERNET_URL="${NETVAL_INTERNET_URL:-https://icanhazip.com}"
@@ -60,7 +60,7 @@ usage() {
   cat <<EOF
 Networking validation orchestrator (see docs/networking-validation-test-plan.md).
 
-Runs e2e-cudn-connectivity.sh by default; virt e2e runs full tests (migrations + netshoot) unless --virt-hints-only.
+Runs e2e-cudn-connectivity.sh by default; virt e2e runs `e2e-virt-live-migration.sh --run-tests` (connectivity mesh, echo, migrations) unless --virt-hints-only.
 
 Usage: $(basename "$0") [options]
 
@@ -69,8 +69,8 @@ Usage: $(basename "$0") [options]
       --also-namespace NS  Also run CUDN e2e in NS (e.g. cudn2)
       --skip-cudn           Skip e2e-cudn-connectivity.sh
       --skip-virt           Skip e2e-virt-live-migration.sh
-      --virt-hints-only     Virt: deploy VMs + print virtctl console/ssh only (no migrations / netshoot probes)
-      --virt-full           No-op (full virt tests are the default); kept for backward compatibility
+      --virt-hints-only     Virt: --skip-tests (VMs + console/virtctl only; no mesh, echo, or migrations)
+      --virt-full           No-op; full tests are the default when this flag is not set; kept for compatibility
       --internet-probes N   After CUDN e2e, N curl attempts from netshoot-cudn (default 0 = off)
   Forwarded to e2e-cudn-connectivity.sh and e2e-virt-live-migration.sh:
       --allow-icmp-fail
@@ -150,7 +150,7 @@ run_virt_e2e() {
       bash "$E2E_VIRT" -C "$CLUSTER_DIR" -n "$ns" --skip-tests
     fi
   else
-    kv "mode" "full (--run-tests: migrations, ping/curl from netshoot)"
+    kv "mode" "full (--run-tests: mesh, echo, live migrations; same as VIRT_E2E_RUN_MIGRATIONS=1)"
     if [[ ${#VIRT_EXTRA[@]} -gt 0 ]]; then
       bash "$E2E_VIRT" -C "$CLUSTER_DIR" -n "$ns" --run-tests "${VIRT_EXTRA[@]}"
     else

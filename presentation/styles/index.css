@@ -51,6 +51,79 @@
   gap: 2rem;
 }
 
+/* Slidev built-in two-cols layout: grid items default to min-width:auto, so wide
+   Mermaid SVGs overflow the column. Let columns shrink and cap diagram width. */
+.slidev-layout.two-columns .col-left,
+.slidev-layout.two-columns .col-right {
+  min-width: 0;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+  padding-bottom: 0.5rem;
+}
+
+.slidev-layout.two-columns .col-right .mermaid,
+.slidev-layout.two-columns .col-right .mermaid svg {
+  max-width: 100%;
+  height: auto !important;
+}
+
+/* OSD on GCP architecture slide: vh-based img max-height lies relative to the browser,
+   not Slidev’s scaled slide canvas — use flex so the figure fills only space below title + intro. */
+.slidev-layout.default:has(.osd-gcp-arch-slide) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.slidev-layout.default:has(.osd-gcp-arch-slide) .osd-gcp-arch-slide {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.osd-gcp-arch-slide {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.osd-gcp-arch-slide h1 {
+  flex-shrink: 0;
+  margin-bottom: 0.35rem !important;
+}
+
+.osd-gcp-arch-slide p {
+  flex-shrink: 0;
+  margin-top: 0 !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.osd-gcp-arch-slide__figure {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.osd-gcp-arch-slide__figure img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+/* Hide the Goto dialog when it is closed (input is disabled).
+   Without this, the results list peeks into view even when the dialog
+   is positioned off-screen above the viewport. */
+#slidev-goto-dialog:has(input:disabled) {
+  display: none !important;
+}
+
 .rh-tag {
   display: inline-block;
   background: var(--rh-red);

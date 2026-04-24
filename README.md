@@ -4,6 +4,8 @@
 
 This repo provides **Terraform** and scripts to run **OpenShift Dedicated on GCP** with a **Cluster User-Defined Network (CUDN)** so pod and KubeVirt VM IPs are **reachable from the VPC without SNAT** on egress to external destinations. **`cluster_bgp_routing/`** composes **hub + spoke VPCs** ([`modules/osd-hub-vpc`](modules/osd-hub-vpc/), [`modules/osd-spoke-vpc`](modules/osd-spoke-vpc/)) with **`osd-cluster`** from [terraform-provider-osd-google](https://github.com/rh-mobb/terraform-provider-osd-google); the **`osdgoogle`** provider is **`~> 0.1.3`** on the [Terraform Registry](https://registry.terraform.io/providers/rh-mobb/osd-google). **`make bgp.run`** applies [**`wif_config/`**](wif_config/README.md) first; expert **`terraform apply`** from **`cluster_bgp_routing/`** alone still expects WIF to exist in OCM.
 
+**Internet egress (GCP):** the **spoke** default route sends **`0.0.0.0/0`** to a **peered hub** tier of **NAT VMs** (**nftables MASQUERADE**), not to **Cloud NAT** on worker subnets. That avoids relying on **spoke** Cloud NAT alone: gateways SNAT only traffic whose sources fall in configured [**subnet IP ranges**](https://cloud.google.com/nat/docs/public-nat#specs-subnet-ranges) on the NIC (primary and selected secondary / alias ranges), which **CUDN** overlay addresses usually **do not** match. Hub **Cloud NAT** in this stack is for **hub-side** management reachability, not the spoke CUDN path. Topology, data plane, and route-tag rationale: [**ARCHITECTURE.md**](ARCHITECTURE.md) (**Network topology (hub + spoke)**, **Solution overview**, **Egress: CUDN / host → public Internet (hub NAT)**); evidence and caveats: [**KNOWLEDGE.md**](KNOWLEDGE.md).
+
 **BGP reference stack:** **NCC** Router Appliance + **Cloud Router** BGP to **all non-infra worker nodes**. **Terraform** manages static infrastructure (NCC hub, Cloud Router, firewalls). The [**operator**](operator/README.md) (`routing.osd.redhat.com/v1alpha1` CRDs — `BGPRoutingConfig` and `BGPRouter`) reconciles **dynamic** resources: NCC spokes, Cloud Router BGP peers, `canIpForward`, nested virtualization, and per-node `FRRConfiguration` CRs. It labels nodes **`routing.osd.redhat.com/bgp-router`** and reports per-node health via `BGPRouter` status objects. Full guide: [**cluster_bgp_routing/README.md**](cluster_bgp_routing/README.md).
 
 **Prebuilt operator image (CI):** on each push to **`main`**, [`.github/workflows/publish-operator-image.yml`](.github/workflows/publish-operator-image.yml) publishes **`ghcr.io/<lowercase owner>/<lowercase repo>/bgp-routing-operator`** to **GitHub Container Registry** (tags **`latest`**, **`main`**, **`sha-<commit>`**).
@@ -66,17 +68,19 @@ export TF_VAR_cluster_name="my-cluster-name"
 make create
 ```
 
-**`make create`** runs **`bgp.run`** then **`bgp.deploy-operator`** (same idea as the former scripted quick start, without auto-running e2e):
+**`make create`** runs **`bgp.run`**, **`bgp.deploy-operator`**, then **`virt.deploy`** (same idea as the former scripted quick start, without auto-running e2e):
 
 1. **`make bgp.run`** — **`wif_config/`** → **`cluster_bgp_routing/`** (hub + spoke VPCs, peering, **`0/0` → hub NAT ILB**, static NCC hub, Cloud Router in **spoke**, optional echo VM), **`oc login`**, **`configure-routing.sh`** (FRR, CUDN, RouteAdvertisements).
 
 2. **`make bgp.deploy-operator`** — [**`controller_gcp_iam/`**](controller_gcp_iam/README.md) apply, WIF credential **Secret** (**`gcloud`** ADC), CRDs, operator RBAC, **`BGPRoutingConfig`** populated from **`cluster_bgp_routing` `terraform output`**, then Deployment and rollout ([`scripts/bgp-deploy-operator-incluster.sh`](scripts/bgp-deploy-operator-incluster.sh)). **`create`** passes **`BGP_OPERATOR_PREBUILT_IMAGE`** so the cluster pulls the published operator from **GHCR** (**`ghcr.io/rh-mobb/osd-gcp-cudn-routing/bgp-routing-operator:latest`** by default; override with **`CREATE_OPERATOR_IMAGE=…`** on the **`make`** line). Private images need a suitable **pull secret** on the deployment namespace. Pass **`TF_VARS`** / **`EXTRA_TF_VARS`** on the **`make`** command line when needed; they are forwarded to **`bgp.run`** / **`bgp.deploy-operator`**.
 
+3. **`make virt.deploy`** — Hyperdisk pool + **StorageClass** + **VolumeSnapshotClass**, then OpenShift Virtualization (**CNV**); see **`make help`** / [`scripts/deploy-openshift-virt.sh`](scripts/deploy-openshift-virt.sh).
+
 After **`create`** or **`dev`**, **`make`** prints **`post-operator-deploy-msg`**: **`watch 'oc get nodes -l routing.osd.redhat.com/bgp-router='`** until every listed node shows **STATUS Ready** for your expected BGP worker count (**`watch`** refreshes the full list each tick), then run **`make bgp.e2e`** (CUDN pod ↔ echo VM **`ping`** / **`curl`**). Test pods use the default scheduler (no router **nodeAffinity**; every worker is a BGP peer). Wait until Cloud Router BGP is **Established** if the first run is flaky.
 
-**`make dev`** is the same two steps but runs an **in-cluster binary `oc start-build`** (ImageStream + BuildConfig) instead of the GHCR image — use this when you are iterating on operator code locally.
+**`make dev`** is the same path but **`bgp.deploy-operator`** uses an **in-cluster binary `oc start-build`** (ImageStream + BuildConfig) instead of the GHCR image — use this when you are iterating on operator code locally.
 
-You can run **`make bgp.run`**, **`make bgp.deploy-operator`**, **`make post-operator-deploy-msg`** (optional reminder), and **`make bgp.e2e`** separately instead of **`make create`** (omit **`BGP_OPERATOR_PREBUILT_IMAGE`** on the **`make`** line to keep the binary build path).
+You can run **`make bgp.run`**, **`make bgp.deploy-operator`**, **`make virt.deploy`**, **`make post-operator-deploy-msg`** (optional reminder), and **`make bgp.e2e`** separately instead of **`make create`** (omit **`BGP_OPERATOR_PREBUILT_IMAGE`** on the **`make`** line to keep the binary build path).
 
 Troubleshooting: [cluster_bgp_routing § Quick start (pod and echo VM)](cluster_bgp_routing/README.md#quick-start-pod-and-echo-vm), **`cluster_bgp_routing/scripts/debug-gcp-bgp.sh`**.
 
@@ -88,7 +92,7 @@ Troubleshooting: [cluster_bgp_routing § Quick start (pod and echo VM)](cluster_
 make destroy
 ```
 
-**`make destroy`** runs **`make bgp.destroy-operator`** then **`make bgp.teardown`**. Pass **`TF_VARS`** / **`EXTRA_TF_VARS`** on the **`make`** command line when **`controller_gcp_iam/`** was applied with the same arguments (recursive **`make`** inherits them into **`iam.destroy`**). You can run **`make bgp.destroy-operator`** and **`make bgp.teardown`** separately instead of **`make destroy`**. **`terraform destroy`** from these **`make`** targets uses **`-auto-approve`** (no interactive confirmation). **`make destroy`**, **`make bgp.destroy-operator`**, and **`make bgp.teardown`** print phase/step banners before each sub-action.
+**`make destroy`** runs **`make virt.destroy-storage`** (KubeVirt VMs, PVCs/snapshots, pool disks on GCP) while the API is still up, then **`make bgp.destroy-operator`**, then **`make bgp.teardown`**. Pass **`TF_VARS`** / **`EXTRA_TF_VARS`** on the **`make`** command line when **`controller_gcp_iam/`** was applied with the same arguments (recursive **`make`** inherits them into **`iam.destroy`**). You can run **`make virt.destroy-storage`**, **`make bgp.destroy-operator`**, and **`make bgp.teardown`** separately instead of **`make destroy`**. **`terraform destroy`** from these **`make`** targets uses **`-auto-approve`** (no interactive confirmation). **`make destroy`** and its sub-targets print phase/step banners before each sub-action.
 
 More detail: [**cluster_bgp_routing/README.md**](cluster_bgp_routing/README.md).
 
@@ -100,7 +104,7 @@ Convention: **`stack.action`** separated by dots; multi-word segments use hyphen
 
 | Target | Directory / action |
 |--------|-------------------|
-| `create` / `dev` / `destroy` | **`create`**: **`bgp.run`** + **`bgp.deploy-operator`** (GHCR operator image), then **`post-operator-deploy-msg`**. **`dev`**: same with in-cluster binary build instead of GHCR. **`destroy`**: **`bgp.destroy-operator`** + **`bgp.teardown`**. |
+| `create` / `dev` / `destroy` | **`create`**: **`bgp.run`** + **`bgp.deploy-operator`** (GHCR operator image) + **`virt.deploy`**, then **`post-operator-deploy-msg`**. **`dev`**: same with in-cluster binary build instead of GHCR. **`destroy`**: **`virt.destroy-storage`** + **`bgp.destroy-operator`** + **`bgp.teardown`**. |
 | `bgp.run` / `bgp.teardown` | Full BGP deploy / destroy `cluster_bgp_routing` then `wif_config` (`bgp.teardown` does **not** remove the operator or **`controller_gcp_iam/`**) |
 | `bgp.deploy-operator` | After **`bgp.run`**: IAM + WIF Secret + CRDs + RBAC + **`BGPRoutingConfig`** + operator ImageStream/BuildConfig/build/rollout ([`scripts/bgp-deploy-operator-incluster.sh`](scripts/bgp-deploy-operator-incluster.sh)) |
 | `bgp.destroy-operator` | Delete **`BGPRoutingConfig`** (finalizer cleanup), operator Deployment + RBAC, CRDs, then **`iam.destroy`** |

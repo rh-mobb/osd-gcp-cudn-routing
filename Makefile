@@ -37,9 +37,9 @@ help:
 	@echo "  (ILB reference stack and legacy controllers live under archive/ — see archive/README.md.)"
 	@echo ""
 	@echo "  login         oc login using cluster_bgp_routing/ Terraform outputs (api_url, admin creds); retries on failure"
-	@echo "  create        bgp.run + bgp.deploy-operator (GHCR image); prints oc get nodes … + make bgp.e2e reminder (does not run e2e)"
-	@echo "  dev           bgp.run + in-cluster operator build; same reminder as create (does not run e2e)"
-	@echo "  destroy       bgp.destroy-operator + bgp.teardown (full stack teardown; all terraform destroy steps use -auto-approve)"
+	@echo "  create        bgp.run + bgp.deploy-operator (GHCR image) + virt.deploy; prints oc get nodes … + make bgp.e2e reminder (does not run e2e)"
+	@echo "  dev           bgp.run + in-cluster operator build + virt.deploy; same reminder as create (does not run e2e)"
+	@echo "  destroy       virt.destroy-storage + bgp.destroy-operator + bgp.teardown (full stack teardown; all terraform destroy steps use -auto-approve)"
 	@echo ""
 	@echo "  bgp.run       full deploy: WIF, cluster apply (hub VPC + spoke VPC + peering + default route + BGP/NCC/echo VM), oc login, configure-routing.sh"
 	@echo "  bgp.teardown  terraform destroy $(CLUSTER_BGP_DIR)/ then $(WIF_DIR)/ (-auto-approve); run bgp.destroy-operator first if you used the in-cluster operator"
@@ -51,7 +51,7 @@ help:
 	@echo ""
 	@echo "  virt.deploy            Hyperdisk pool + StorageClass + VolumeSnapshotClass, then OpenShift Virtualization (CNV)"
 	@echo "  virt.destroy-storage   All KubeVirt VMs first, then PVCs/snapshots/CDI, SC/VSC + standard-csi default; GCP disks in pool + Hyperdisk pool (virt_storage_zone; fallback: all worker zones)"
-	@echo "  virt.e2e               Deploy virt-e2e VMs + virtctl console/ssh hints (default); add --run-tests for full e2e (see scripts/README.md)"
+	@echo "  virt.e2e               Default: apply VMs + mesh (netshoot, VMs, icanhazip, optional echo) — see e2e-virt-live-migration -h; virt.e2e.full = add migrations"
 	@echo "  virt.ssh.bridge        Interactive SSH to VIRT_E2E_VM_NAME_BRIDGE (default virt-e2e-bridge) via netshoot-cudn"
 	@echo "  virt.ssh.masq          Interactive SSH to VIRT_E2E_VM_NAME_MASQ (default virt-e2e-masq) via netshoot-cudn"
 	@echo ""
@@ -109,19 +109,24 @@ post-operator-deploy-msg:
 create:
 	@$(MAKE) bgp.run
 	@$(MAKE) bgp.deploy-operator BGP_OPERATOR_PREBUILT_IMAGE="$(CREATE_OPERATOR_IMAGE)"
+	@$(MAKE) virt.deploy
 	@$(MAKE) post-operator-deploy-msg
 
 dev:
 	@$(MAKE) bgp.run
 	@$(MAKE) bgp.deploy-operator
+	@$(MAKE) virt.deploy
 	@$(MAKE) post-operator-deploy-msg
 
 destroy:
 	@echo "=== make destroy: full stack teardown ==="
-	@echo ">>> Phase 1/2: bgp.destroy-operator (in-cluster cleanup + $(IAM_DIR)/)"
+	@echo ">>> Phase 1/3: virt.destroy-storage (VMs, PVCs/snapshots, Hyperdisk pool / GCP disks)"
+	@$(MAKE) virt.destroy-storage
+	@echo ""
+	@echo ">>> Phase 2/3: bgp.destroy-operator (in-cluster cleanup + $(IAM_DIR)/)"
 	@$(MAKE) bgp.destroy-operator
 	@echo ""
-	@echo ">>> Phase 2/2: bgp.teardown (cluster_bgp_routing/ then wif_config/)"
+	@echo ">>> Phase 3/3: bgp.teardown (cluster_bgp_routing/ then wif_config/)"
 	@$(MAKE) bgp.teardown
 	@echo ""
 	@echo "=== make destroy: finished ==="
@@ -163,7 +168,7 @@ bgp.destroy-operator:
 	@echo "=== bgp.destroy-operator: finished ==="
 
 # ---- OpenShift Virtualization + RWX storage ----
-.PHONY: virt.deploy virt.destroy-storage virt.e2e virt.ssh.bridge virt.ssh.masq
+.PHONY: virt.deploy virt.destroy-storage virt.e2e virt.e2e.full virt.ssh.bridge virt.ssh.masq
 virt.deploy:
 	@bash "$(CURDIR)/scripts/deploy-openshift-virt.sh"
 
@@ -172,6 +177,9 @@ virt.destroy-storage:
 
 virt.e2e:
 	@bash "$(CURDIR)/scripts/e2e-virt-live-migration.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)"
+
+virt.e2e.full:
+	@bash "$(CURDIR)/scripts/e2e-virt-live-migration.sh" -C "$(CURDIR)/$(CLUSTER_BGP_DIR)" --with-migrations
 
 # Interactive SSH to virt-e2e guests (netshoot jump). Override: CUDN_NAMESPACE, VIRT_E2E_VM_NAME_* .
 virt.ssh.bridge:

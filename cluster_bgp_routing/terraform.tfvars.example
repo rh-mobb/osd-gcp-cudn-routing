@@ -34,6 +34,7 @@ gcp_region = "us-central1"
 # spoke_default_route_priority   = 800
 # nat_enable_iap_ssh             = true   # set false in hardened environments
 # spoke_enable_iap_ssh           = true   # set false in hardened environments
+# spoke_enable_cudn_egress_return = true   # allows all inbound (0.0.0.0/0) to spoke VPC workers — required for CUDN internet egress; set false only in hardened environments
 
 # Default OSD worker pool machine type (OCM catalog)
 # compute_machine_type = "n2-standard-4"

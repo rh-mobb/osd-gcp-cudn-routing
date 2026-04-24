@@ -90,6 +90,18 @@ func (r *Reconciler) Reconcile(ctx context.Context) (ReconcileResult, error) {
 		routerNodes[i] = selected[i].RouterNode
 		nodeMap[selected[i].RouterNode.Name] = selected[i].K8sName
 	}
+
+	// Step A: Manage preTerminate lifecycle hooks; collect terminating machines so their
+	// BGP peers can be cleaned up before GCE instance deletion unblocks.
+	terminating, err := FindTerminatingMachines(ctx, r.Client, r.Cfg, selfLinkSet(routerNodes))
+	if err != nil {
+		return res, fmt.Errorf("machine lifecycle hooks: %w", err)
+	}
+
+	// Step B: Exclude terminating instances from peer/spoke/FRR reconciliation so their
+	// resources are cleaned up by the normal full-set-patch logic.
+	filteredNodes := excludeTerminating(routerNodes, terminating)
+
 	res.NodesFound = len(routerNodes)
 
 	log.Info("ensuring canIpForward on router instances", "count", len(routerNodes))
@@ -138,7 +150,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) (ReconcileResult, error) {
 	}
 
 	log.Info("reconciling NCC spokes", "hub", r.Cfg.NCCHubName, "prefix", r.Cfg.NCCSpokePrefix)
-	spokeDelta, err := ReconcileNCCSpokes(ctx, r.NCC, r.Cfg, routerNodes)
+	spokeDelta, err := ReconcileNCCSpokes(ctx, r.NCC, r.Cfg, filteredNodes)
 	if err != nil {
 		return res, err
 	}
@@ -153,7 +165,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) (ReconcileResult, error) {
 		return res, err
 	}
 	res.Topology = topology
-	peerChanged, err := r.Compute.ReconcilePeers(ctx, r.Cfg.CloudRouterName, r.Cfg.ClusterName, routerNodes, topology, r.Cfg.FRRASN)
+	peerChanged, err := r.Compute.ReconcilePeers(ctx, r.Cfg.CloudRouterName, r.Cfg.ClusterName, filteredNodes, topology, r.Cfg.FRRASN)
 	if err != nil {
 		return res, err
 	}
@@ -163,7 +175,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) (ReconcileResult, error) {
 	}
 
 	log.Info("reconciling FRRConfiguration CRs", "namespace", r.Cfg.FRRNamespace)
-	cr, del, err := ReconcileFRRConfigurations(ctx, r.Client, r.Cfg, routerNodes, nodeMap, topology)
+	cr, del, err := ReconcileFRRConfigurations(ctx, r.Client, r.Cfg, filteredNodes, nodeMap, topology)
 	if err != nil {
 		return res, err
 	}
@@ -171,6 +183,14 @@ func (r *Reconciler) Reconcile(ctx context.Context) (ReconcileResult, error) {
 	res.FRRDeleted = del
 	if cr > 0 || del > 0 {
 		log.Info("FRRConfiguration changes", "created", cr, "deleted", del)
+	}
+
+	// Step C: Release lifecycle hooks now that BGP peers are gone, unblocking Machine deletion.
+	if len(terminating) > 0 {
+		if err := ReleaseMachines(ctx, r.Client, terminating); err != nil {
+			return res, fmt.Errorf("release machine hooks: %w", err)
+		}
+		log.Info("released preTerminate lifecycle hooks", "machines", len(terminating))
 	}
 
 	// Build per-node results for BGPRouter status.

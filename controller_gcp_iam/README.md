@@ -68,7 +68,7 @@ After STS succeeds, **impersonation** needs **`roles/iam.workloadIdentityUser`**
 
 ## Destroy order
 
-Destroy this stack **before** or **after** the cluster; if you remove the WIF config, apply/destroy here while OCM still exposes the WIF data source if you need to change IAM. Typical teardown after **`make bgp.deploy-operator`**: **`make destroy`** (**`bgp.destroy-operator`** + **`bgp.teardown`**) or **`make bgp.destroy-operator`** → **`make bgp.teardown`**. For IAM-only removal, use **`make iam.destroy`**.
+Destroy this stack **before** or **after** the cluster; if you remove the WIF config, apply/destroy here while OCM still exposes the WIF data source if you need to change IAM. Typical teardown after **`make bgp.deploy-operator`**: **`make destroy`** (**`virt.destroy-storage`** + **`bgp.destroy-operator`** + **`bgp.teardown`**) or the same steps manually. For IAM-only removal, use **`make iam.destroy`**.
 
 ## Module
 

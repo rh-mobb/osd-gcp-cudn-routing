@@ -62,6 +62,27 @@ resource "google_compute_firewall" "hub_to_spoke_return" {
   }
 }
 
+# Allow all inbound traffic to all spoke VPC instances so that internet return packets
+# (src=<public-IP>) arriving via Cloud Router ECMP are not dropped by the GCP VPC
+# stateful firewall on workers that did not originate the outbound connection.
+# GCP worker network tags are assigned by the OSD installer and not under our control,
+# so the rule is VPC-wide (no target_tags). Mirrors AWS rosa-virt-allow-from-ALL-sg.
+resource "google_compute_firewall" "cudn_egress_return" {
+  count = var.enable_cudn_egress_return ? 1 : 0
+
+  project   = var.project_id
+  name      = "${var.cluster_name}-cudn-egress-return"
+  network   = google_compute_network.spoke.id
+  direction = "INGRESS"
+  priority  = 800
+
+  source_ranges = ["0.0.0.0/0"]
+
+  allow {
+    protocol = "all"
+  }
+}
+
 resource "google_compute_firewall" "iap_ssh" {
   count = var.enable_iap_ssh ? 1 : 0
 

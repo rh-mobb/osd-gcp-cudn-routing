@@ -125,6 +125,13 @@ spec:
                   the cluster.
                 minLength: 1
                 type: string
+              machineNamespace:
+                default: openshift-machine-api
+                description: |-
+                  MachineNamespace is the namespace where OpenShift Machine objects are managed.
+                  The operator registers a preTerminate lifecycle hook on each BGP router Machine
+                  to ensure BGP peers are removed before GCE instance deletion.
+                type: string
               ncc:
                 description: NCC specifies the Network Connectivity Center hub and
                   spoke configuration.

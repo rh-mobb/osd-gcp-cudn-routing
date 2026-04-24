@@ -236,7 +236,17 @@ bash "${REPO}/scripts/e2e-cudn-connectivity.sh" -C "${REPO}/cluster_bgp_routing"
 
 ## Part 2 — Teardown (full stack)
 
-**Order matters.** If the operator still owns **Cloud Router** peers or **NCC** spoke attachments, destroying **`cluster_bgp_routing`** first can **block or fail**. Complete **Part 2** in sequence.
+**Order matters.** If the operator still owns **Cloud Router** peers or **NCC** spoke attachments, destroying **`cluster_bgp_routing`** first can **block or fail**. Complete **Part 2** in sequence. If you installed OpenShift Virtualization and the Hyperdisk pool (**`make virt.deploy`**), remove workloads and pool disks **while the API is still up** before deleting **`BGPRoutingConfig`** (see step 0).
+
+### 0. OpenShift Virtualization storage (optional)
+
+Skip if you never ran **`scripts/deploy-openshift-virt.sh`** / **`make virt.deploy`**.
+
+```bash
+bash "${REPO}/scripts/destroy-openshift-virt-storage.sh"
+```
+
+Same as **`make virt.destroy-storage`** from the repo root.
 
 ### 1. Delete `BGPRoutingConfig` (finalizer cleanup)
 
@@ -295,6 +305,8 @@ If you prefer not to type each step, the same ordering is implemented as:
 
 - **`scripts/bgp-apply.sh`** — Part 1, §§1–4  
 - **`scripts/bgp-deploy-operator-incluster.sh`** — Part 1, §§5–13 (set **`BGP_OPERATOR_PREBUILT_IMAGE`** for Option A; omit it for Option B)  
+- **`scripts/deploy-openshift-virt.sh`** — Hyperdisk pool + CNV (**`make virt.deploy`**; **`make create`** / **`make dev`** run this after operator deploy)  
+- **`scripts/destroy-openshift-virt-storage.sh`** — Part 2, §0 (**`make virt.destroy-storage`**; **`make destroy`** runs this first)  
 - **`scripts/bgp-destroy.sh`** — Part 2, §§5–6 only (run **after** operator and **`controller_gcp_iam`** teardown)
 
 ---

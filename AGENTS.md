@@ -56,7 +56,7 @@ Run `make fmt` before submission (Terraform formatting).
 When making changes to this codebase, AI agents **must**:
 
 - **Keep documentation up to date** — Update [README.md](README.md) and module READMEs when behavior or inputs change.
-- **Update the changelog** — For user-facing changes, add an entry under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) using Added, Changed, Deprecated, Removed, Fixed, or Security.
+- **Update the changelog** — For user-facing changes, add an entry under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) using Added, Changed, Deprecated, Removed, Fixed, or Security. **Exception:** changes limited to [presentation/](presentation/) (Slidev deck) do not require a CHANGELOG entry — see [presentation/AGENTS.md](presentation/AGENTS.md).
 - **Maintain the knowledge base** — Record new learnings, invalidated assumptions, and testable hypotheses in [KNOWLEDGE.md](KNOWLEDGE.md), each with a **confidence score** and short reasoning or citation. This file works **alongside** [ARCHITECTURE.md](ARCHITECTURE.md) and runbooks: architecture docs stay curated and stable; `KNOWLEDGE.md` holds evidence, uncertainty, and institutional memory for humans and agents between sessions. Prefer updating an existing subsection when the topic is already covered; promote settled items into **Verified Facts** (and trim stale hypothesis text) when evidence warrants it.
 
 ### KNOWLEDGE.md: when to update
@@ -72,6 +72,30 @@ Do **not** use `KNOWLEDGE.md` instead of updating [ARCHITECTURE.md](ARCHITECTURE
 ## Debugging
 
 When investigating failures or unexpected behavior, agents should **use the tools available in the environment** (MCP integrations, CLIs, cluster/API clients, logs, tests, and repository search) to gather evidence **before** changing code or configuration. Prefer a short, targeted investigation that confirms root cause over speculative edits.
+
+## OpenShift and Kubernetes clusters
+
+When reading or changing cluster state (resources, logs, events, routes, operators, etc.), use tools in this **strict preference order**:
+
+1. **Kubernetes MCP** — Use it first whenever the enabled MCP server exposes the needed capability (list/get/watch, apply, logs, port-forward equivalents, etc.).
+2. **`oc`** — Use the OpenShift CLI second when the MCP is insufficient, unavailable, or OpenShift-specific behavior requires it.
+3. **`kubectl`** — Use only as a last resort when neither the MCP nor `oc` can complete the task.
+
+Do not skip the MCP in favor of raw CLIs when the MCP can perform the same operation.
+
+## Command-line execution
+
+Use **judgment** when choosing how to run shell commands. The **tmux MCP** is often the best fit—especially when you are juggling **multiple** debugging streams (several tails, watches, port-forwards, or compare-before/after runs), when work is **long-running**, or when you need **attachable, durable** session output. A single quick, non-interactive command (for example `make test` or `terraform fmt -check`) may be simpler through the ordinary shell integration without tmux. When you do use tmux, prefer an **isolated socket** when parallel agents need separate shells (follow the tmux MCP server’s socket guidance).
+
+### CUDN / KubeVirt guests: SSH (primary UDN)
+
+`virtctl ssh` is often **unsupported or unreliable** in **primary UDN** namespaces. Use a **jump pod on the same CUDN** and the repo keypair in **`cluster_bgp_routing/.virt-e2e/id_ed25519`** (or another `CLUSTER_DIR` passed to the virt e2e script):
+
+1. `oc wait -n cudn1 --for=condition=Ready pod/netshoot-cudn` (or deploy [`scripts/deploy-cudn-test-pods.sh`](scripts/deploy-cudn-test-pods.sh))
+2. `oc cp $CLUSTER_DIR/.virt-e2e/id_ed25519 cudn1/netshoot-cudn:/tmp/virt-e2e-vm-key -c netshoot` then `oc exec` … `chmod 600` on that path
+3. `oc exec -n cudn1 -it netshoot-cudn -c netshoot -- ssh -i /tmp/virt-e2e-vm-key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null cloud-user@<VMI-guest-IPv4>` (address from `oc get vmi -o wide` or `oc get vmi -o jsonpath=…`)
+
+[`scripts/virt-ssh.sh`](scripts/virt-ssh.sh) and **`make virt.ssh.bridge`** / **`make virt.ssh.masq`** automate the same. [`e2e-virt-live-migration.sh`](scripts/e2e-virt-live-migration.sh) Phase A uses the jump for in-guest tests between the two virt-e2e VMs, `icanhazip-cudn`, and the Terraform **echo** VM. More detail: [KNOWLEDGE.md](KNOWLEDGE.md) (OpenShift Virtualization on GCP — *Ad-hoc SSH*).
 
 ## Self-Review (Mandatory)
 

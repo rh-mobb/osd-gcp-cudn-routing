@@ -53,6 +53,8 @@ const (
 	DefaultReconcileIntervalSeconds = 60
 	// DefaultDebounceSeconds is the default debounce period for node events.
 	DefaultDebounceSeconds = 5
+	// DefaultMachineNamespace is the default namespace for OpenShift Machine objects.
+	DefaultMachineNamespace = "openshift-machine-api"
 )
 
 // BGPRoutingConfigSpec defines the desired BGP routing configuration for the cluster.
@@ -103,6 +105,13 @@ type BGPRoutingConfigSpec struct {
 	// +kubebuilder:default=5
 	// +kubebuilder:validation:Minimum=1
 	DebounceSeconds int `json:"debounceSeconds,omitempty"`
+
+	// MachineNamespace is the namespace where OpenShift Machine objects are managed.
+	// The operator registers a preTerminate lifecycle hook on each BGP router Machine
+	// to ensure BGP peers are removed before GCE instance deletion.
+	// +optional
+	// +kubebuilder:default="openshift-machine-api"
+	MachineNamespace string `json:"machineNamespace,omitempty"`
 }
 
 // CloudRouterSpec identifies the GCP Cloud Router for BGP peering.

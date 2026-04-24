@@ -261,6 +261,12 @@ variable "spoke_enable_iap_ssh" {
   description = "Allow IAP TCP tunneling (35.235.240.0/20 → TCP/22) on all spoke VPC instances (test VMs, debug nodes). Set false in hardened environments."
 }
 
+variable "spoke_enable_cudn_egress_return" {
+  type        = bool
+  default     = true
+  description = "Allow all inbound traffic (0.0.0.0/0, all protocols) to all spoke VPC instances. Required for reliable CUDN internet egress via the hub NAT path: the GCP VPC stateful firewall otherwise drops internet return packets on BGP workers that did not originate the outbound connection. GCP worker network tags are OSD-assigned and not under our control, so the rule is VPC-wide. Set false only in hardened environments that handle this via a separate policy."
+}
+
 variable "spoke_default_route_priority" {
   type        = number
   default     = 800

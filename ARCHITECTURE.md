@@ -16,7 +16,9 @@ See [KNOWLEDGE.md](KNOWLEDGE.md) for the evidence base behind these decisions.
 - **Default route** (spoke): **`0.0.0.0/0`** → **`next_hop_ilb`** (hub NLB forwarding rule). More-specific BGP and subnet routes retain priority over this default (`priority` configurable).
 - **`cluster_bgp_routing/`**: wires hub → spoke → peering → default route → `osd-cluster` → optional `osd-bgp-routing`.
 
-This avoids **Cloud NAT source registration** failures for CUDN-overlay sources and avoids **route tag** scoping on workers because NAT VMs are **not** in the spoke VPC.
+**Why hub NAT VMs instead of spoke Cloud NAT for CUDN internet egress:** Managed [**Cloud NAT**](https://cloud.google.com/nat/docs/overview) SNATs traffic from a subnet only for sources that fall within the gateway’s configured [**subnet IP ranges**](https://cloud.google.com/nat/docs/public-nat#specs-subnet-ranges) (for example the subnet **primary** range and selected **secondary / alias** ranges on the primary NIC). **CUDN** overlay addresses generally **do not** appear as those registered sources on the worker NIC, so relying on **spoke-side** Cloud NAT as the default internet path for CUDN workloads is **fragile** (traffic may not be SNAT’d when you expect, or may fail policy checks). This design sends **`0.0.0.0/0`** to a **peered hub** and performs **MASQUERADE** on Linux **NAT VMs**: the Internet sees only the NAT instance’s public path, and return traffic matches **conntrack** on those routers — **independent** of CUDN NIC registration semantics. The **hub** still uses **Cloud NAT** in a **narrow** role (for example management egress from hub subnets such as the NAT MIG), **not** as the SNAT path for spoke CUDN overlay traffic. Keeping the SNAT tier in a **separate VPC** also avoids coupling default internet egress to **route tag**–scoped static routes on worker NICs in the spoke.
+
+See [KNOWLEDGE.md](KNOWLEDGE.md) for lab evidence and edge cases.
 
 ---
 
@@ -145,7 +147,7 @@ Applied by `configure-routing.sh` after cluster creation.
 | Resource | Purpose |
 |----------|---------|
 | **`BGPRoutingConfig` CR** | Singleton (`cluster`); declarative spec for all routing config; `.status` reports aggregated reconciliation state |
-| **`BGPRouter` CRs** | One per elected router node; operator-managed status objects showing per-node GCP/FRR health |
+| **`BGPRouter` CRs** | One per BGP router worker (every sorted candidate in the pool by default); operator-managed status objects showing per-node GCP/FRR health |
 | **`FRRConfiguration` CRs** | One per worker node; targets single node via `kubernetes.io/hostname`; 2 Cloud Router neighbors with `disable-connected-check` in `spec.raw` |
 | **Node label** `routing.osd.redhat.com/bgp-router` | Applied to all candidate workers for **`oc get -l`** / affinity if you add it elsewhere |
 | **Node annotations** `routing.osd.redhat.com/gcp-can-ip-forward`, `routing.osd.redhat.com/gcp-nested-virtualization` | Set after successful GCE **`canIpForward`** / nested virt reconcile; removed with the router label on cleanup or when nested virt is disabled |
@@ -296,7 +298,7 @@ It watches `BGPRoutingConfig` and Node events and runs periodic drift correction
 │     - Delete stale CRs for removed nodes                 │
 │                                                          │
 │  8. Update BGPRouter status objects                      │
-│     - One BGPRouter CR per elected router node           │
+│     - One BGPRouter CR per BGP router worker (pool)      │
 │     - Per-node conditions: CanIPForwardReady, etc.       │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -359,7 +361,7 @@ This is a system limit and cannot be increased.
 | Cluster size | Spokes required | Notes |
 |-------------|-----------------|-------|
 | 1-8 workers | 1 spoke | Current design works as-is |
-| 9-16 workers | 2 spokes | Controller creates `{prefix}-0` and `{prefix}-1` |
+| 9-16 workers | 2 spokes | Operator creates `{prefix}-0` and `{prefix}-1` |
 | 17-24 workers | 3 spokes | Additional numbered spokes as needed |
 
 A single NCC hub can host multiple spokes.
@@ -421,7 +423,7 @@ spec:
 ```
 
 - **`nodeSelector: {}`** is mandatory when `PodNetwork` is in `advertisements` (OVN-K admission rejects non-empty selectors).
-- **`frrConfigurationSelector: {}`** matches all FRR configs (controller-managed and OVN-K generated).
+- **`frrConfigurationSelector: {}`** matches all FRR configs (operator-managed and OVN-K generated).
 - Only CUDNs labeled `advertise: "true"` are selected.
 - OVN-K generates one `FRRConfiguration` per network and per node from this CR with appropriate advertised prefixes.
 - **Receive-side route filtering is NOT applied** in OVN-K generated CRs — configure `toReceive` on the operator's `FRRConfiguration` CRs instead.
@@ -472,7 +474,7 @@ BGP overhead is minimal for the expected cluster sizes (6-20 workers = 12-40 pee
 **Decision**: one `FRRConfiguration` CR per worker, targeting a single node via `kubernetes.io/hostname`.
 
 **Rationale**: enables precise lifecycle management.
-When a worker is removed, the controller deletes only that node's CR.
+When a worker is removed, the operator deletes only that node's CR.
 GCP-specific `spec.raw` (disable-connected-check) is the same for all nodes, but per-node CRs provide isolation if future customization is needed.
 
 **Alternative considered**: single CR with `nodeSelector` matching a label (AWS reference pattern).
@@ -501,7 +503,7 @@ BGP only needs to advertise one prefix (`10.100.0.0/16`), keeping the routing ta
 | Aspect | GCP (this repo) | AWS (rosa-bgp reference) |
 |--------|-----------------|--------------------------|
 | **BGP anchor** | NCC Hub + Cloud Router (2 interfaces) | VPC Route Server (2 endpoints per subnet) |
-| **Which nodes peer** | All non-infra workers (controller-managed) | 3 dedicated bare-metal pools, one per AZ |
+| **Which nodes peer** | All non-infra workers (operator-managed) | 3 dedicated bare-metal pools, one per AZ |
 | **FRR config** | Per-node `FRRConfiguration` CR | Single CR, `nodeSelector: bgp_router=true` |
 | **FRR neighbors per node** | 2 (Cloud Router interface IPs) | 6 (all Route Server endpoint IPs listed, though only 2 per AZ are relevant) |
 | **IP forwarding** | `canIpForward` on GCE instance (API) | Source/dest check disable on ENI (CLI script) |
@@ -510,7 +512,7 @@ BGP only needs to advertise one prefix (`10.100.0.0/16`), keeping the routing ta
 | **Failover** | Cloud Router BGP timers | BGP keepalive (BFD not working) |
 | **Cross-VPC** | Not in scope (peering / Interconnect) | Transit Gateway with static routes for CUDN CIDR |
 | **Test automation** | `make bgp.e2e` (scripted) | Manual QE checklist (`tests/test-plan.md`) |
-| **Node lifecycle** | Controller reconciles on Node watch events | Terraform `wait_for_instance` + manual scripts |
+| **Node lifecycle** | Operator reconciles on Node watch events | Terraform `wait_for_instance` + manual scripts |
 
 ---
 
@@ -527,7 +529,7 @@ BGP only needs to advertise one prefix (`10.100.0.0/16`), keeping the routing ta
 
 The **8-instance NCC spoke limit** is the binding constraint for the all-workers design.
 For the current default of 6 workers, this is not an issue.
-For clusters scaling beyond 8 workers, the controller distributes instances across multiple numbered spokes automatically.
+For clusters scaling beyond 8 workers, the operator distributes instances across multiple numbered spokes automatically.
 
 ---
 
@@ -558,8 +560,11 @@ For clusters scaling beyond 8 workers, the controller distributes instances acro
    ├── BGPRoutingConfig CR (from terraform output)
    ├── In-cluster image build (or GHCR prebuilt)
    └── Deployment rollout
+   (Root Makefile: make create / make dev next run make virt.deploy — optional lab stack:
+    Hyperdisk pool + StorageClass + VolumeSnapshotClass + CNV via scripts/deploy-openshift-virt.sh;
+    not part of the BGP data plane; omit when using bgp.deploy-operator alone.)
 
-5. Operator reconciles (continuous)
+5. Operator reconciles (continuous; begins as soon as the Deployment is up)
    ├── Labels all workers (**`routing.osd.redhat.com/bgp-router`**)
    ├── Enables canIpForward on all workers; annotates nodes (**`routing.osd.redhat.com/gcp-can-ip-forward`**, nested virt when enabled)
    ├── Creates/updates NCC spokes ({prefix}-0, …)
@@ -590,7 +595,7 @@ For clusters scaling beyond 8 workers, the controller distributes instances acro
 | `operator/deploy/` | OpenShift deploy manifests (namespace, RBAC, deployment, imagestream, buildconfig) |
 | `controller_gcp_iam/` | Operator GCP SA + WIF IAM |
 | `modules/osd-bgp-controller-iam/` | Reusable module: custom role, SA, WIF binding |
-| `scripts/` | Orchestration: `bgp-apply.sh`, `bgp-deploy-operator-incluster.sh`, `e2e-cudn-connectivity.sh` |
+| `scripts/` | Orchestration: `bgp-apply.sh`, `bgp-deploy-operator-incluster.sh`, `e2e-cudn-connectivity.sh`, `deploy-openshift-virt.sh`, `destroy-openshift-virt-storage.sh`, `networking-validation-test.sh` |
 | `archive/controller/` | Archived legacy Go + Python controllers (replaced by operator) |
 | `references/rosa-bgp/` | AWS ROSA reference implementation (cloned) |
 | `references/fix-bgp-ra.md` | CUDN ingress debugging plan (Phase 1-5) |

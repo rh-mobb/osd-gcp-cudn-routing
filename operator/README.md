@@ -43,6 +43,34 @@ Users should **not** create these manually.
 
 **Status conditions:** `CanIPForwardReady`, `NestedVirtReady`, `NCCSpokeJoined`, `BGPPeersConfigured`, `FRRConfigured`.
 
+## Node drain / upgrade safety — preTerminate lifecycle hook
+
+On OpenShift clusters, the operator registers a `preTerminate` lifecycle hook named
+`routing.osd.redhat.com/bgp-cleanup` (owner: `BGPRoutingConfig`) on every Machine that
+is an active BGP router appliance. This prevents a GCP API error during cluster upgrades
+and node replacements:
+
+```
+googleapi: Error 400: Invalid resource usage: 'Resource cannot be deleted because there
+is a BGP peer configured with a router bgp151-cudn-cr.'
+```
+
+**How it works:**
+
+1. The operator adds the hook to every BGP router Machine at reconcile time.
+2. When a Machine is marked for deletion, the Machine controller blocks at
+   `PreTerminateHookSucceeded=False` and waits for the hook to be removed.
+3. The operator detects the terminating Machine, excludes it from the active BGP set,
+   and lets the normal `ReconcilePeers` call remove the Cloud Router BGP peer.
+4. Once the peer is gone, the operator removes the hook from the Machine.
+5. The Machine controller resumes and calls the GCP delete API — which now succeeds.
+
+**Non-OCP clusters:** On clusters where the `machine.openshift.io` API group is not
+registered (e.g. kind, local dev), the hook logic is automatically skipped.
+
+**`spec.machineNamespace`:** Controls the namespace where the operator looks for Machine
+objects. Defaults to `openshift-machine-api`.
+
 ## Cleanup
 
 Two independent cleanup triggers:

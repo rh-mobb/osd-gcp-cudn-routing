@@ -1,48 +1,52 @@
 ---
 theme: default
-title: "Joint Engineering with AI"
+title: "Beyond vibe coding: Less vibes, more receipts"
 info: |
-  Joint Engineering with AI: How We Built and Debugged a Production BGP Routing System
+  Joint engineering with AI — how we built and debugged a production BGP routing system on OpenShift Dedicated (GCP).
   Red Hat Managed OpenShift Black Belt — Paul Czarkowski
 highlighter: shiki
 lineNumbers: false
+# toc: false
+# navigation:
+#   toc: false
 fonts:
   sans: Red Hat Text
   serif: Red Hat Display
   mono: JetBrains Mono
 ---
 
-# Joint Engineering with AI
+# Beyond vibe coding: Less vibes, more receipts
 
-## How We Built and Debugged a Production BGP Routing System
+## How we built and debugged production BGP routing (OpenShift Dedicated on GCP)
 
 <div class="mt-8 text-[var(--rh-muted)]">
-Paul Czarkowski · Red Hat Managed OpenShift Black Belt · 2026
+Paul Czarkowski · Red Hat Managed OpenShift Black Belt · 2026<br>
+Cursor AI (Claude Sonnet) · Cursor IDE · 2026
 </div>
 
 <!--
-Welcome everyone. I'm Paul Czarkowski, a Managed OpenShift Black Belt at Red Hat. This talk is a case study in joint engineering with AI: how we built and debugged a production BGP routing stack for OpenShift Virtualization on GCP—not as a vibe-coding demo, but as disciplined infrastructure work.
+Welcome everyone. I'm Paul Czarkowski, a Managed OpenShift Black Belt at Red Hat. The title is deliberate: joint engineering with AI means less narrative confidence and more receipts—rules, ground truth, and reviewed environment. The story is production BGP on OpenShift Dedicated for GCP and a week-long egress investigation—not a vibe-coding demo.
 -->
 
 ---
 
 # Meet the Team
 
-<div class="cols-2 mt-4">
+<div class="cols-2 mt-2 gap-6 text-sm leading-snug [&_h3]:!text-xl [&_h3]:!mt-0 [&_h3]:!mb-1">
 <div class="flex flex-col items-center text-center">
 
-<img src="/paul-bio.png" alt="Paul Czarkowski" class="w-36 h-36 rounded-full object-cover object-top mb-4 border-2 border-[var(--rh-red)]" />
+<img src="/paul-bio.png" alt="Paul Czarkowski" class="w-28 h-28 shrink-0 rounded-full object-cover object-top mb-2 border-2 border-[var(--rh-red)]" />
 
 ### Paul Czarkowski
-<div class="rh-tag mb-3">Human</div>
+<div class="rh-tag mb-2">Human</div>
 
-Senior Principal · Cloud Services Black Belts · Red Hat
+Senior Principal Cloud SA · Red Hat
 
-20+ years in cloud, Kubernetes, and DevOps. Running Docker in production since 2014, Kubernetes before it was cool. Speaker at KubeCon, DevOpsDays, and conferences worldwide.
+20+ years in cloud, Kubernetes, and DevOps. Docker in production since 2014; Kubernetes since 2015. KubeCon, DevOpsDays, worldwide.
 
-Open source advocate. Competitive BBQ pitmaster. Cannot spell BGP.
+Open source advocate. BBQ pitmaster. Cannot spell BGP.
 
-<div class="mt-2 text-[var(--rh-muted)] text-xs">
+<div class="mt-1.5 text-[var(--rh-muted)] text-xs">
 
 [tech.paulcz.net](https://tech.paulcz.net) · [github.com/paulczar](https://github.com/paulczar)
 
@@ -50,18 +54,18 @@ Open source advocate. Competitive BBQ pitmaster. Cannot spell BGP.
 </div>
 <div class="flex flex-col items-center text-center">
 
-<div class="w-32 h-32 rounded-full mb-4 border-2 border-[var(--rh-blue)] flex items-center justify-center text-5xl" style="background: var(--rh-surface)">🤖</div>
+<div class="w-28 h-28 shrink-0 rounded-full mb-2 border-2 border-[var(--rh-blue)] flex items-center justify-center text-4xl" style="background: var(--rh-surface)">🤖</div>
 
 ### Cursor AI (Sonnet)
-<div class="rh-tag mb-3" style="background: var(--rh-blue)">AI</div>
+<div class="rh-tag mb-2" style="background: var(--rh-blue)">AI</div>
 
 Powered by Claude Sonnet · Cursor IDE · 2026
 
-110 sessions. 0 coffee breaks. Reads 153-endpoint OpenAPI specs without complaining. Specializes in BGP (confidence: 95%), GCP NCC, Terraform, and Go operators.
+110 sessions. Reads 153-endpoint OpenAPI specs without flinching. BGP, GCP NCC, Terraform, Go operators.
 
-Investigates before guessing. Reviews own work before showing it. Does not know BBQ — but understands smoked packets.
+Investigates before guessing; self-reviews output. No BBQ — understands smoked packets.
 
-<div class="mt-2 text-[var(--rh-muted)] text-xs">
+<div class="mt-1.5 text-[var(--rh-muted)] text-xs">
 
 [cursor.com](https://cursor.com) · Context window: managed carefully
 
@@ -75,44 +79,23 @@ Quick speaker intros — keep this light and fast, 60 seconds max. The joke abou
 
 ---
 
+<div class="osd-gcp-arch-slide">
+
 # What Is OpenShift Dedicated on GCP?
 
-<RhTwoColumn>
-  <template #left>
+**OpenShift Dedicated (OSD)** is a fully managed Red Hat OpenShift cluster running in your GCP project — Red Hat operates the control plane, you run workloads.
 
-  **OpenShift Dedicated (OSD)** is a fully managed Red Hat OpenShift cluster running in your GCP project — Red Hat operates the control plane, you run workloads.
+<div class="osd-gcp-arch-slide__figure">
+<img
+  src="/osd-gcp-arch.png"
+  alt="GCP customer project: Customer VPC with worker VMs, Red Hat–managed control plane, internal LB, Cloud NAT, ingress load balancer, and VPN or Interconnect to corporate network"
+/>
+</div>
 
-  - Customer VPC in GCP, worker nodes in customer subnets
-  - Red Hat manages API, etcd, ingress, upgrades, SRE
-  - OpenShift Virtualization (KubeVirt) lets you run VMs inside OCP pods
-
-  </template>
-  <template #right>
-
-  ```mermaid
-  graph TD
-    subgraph gcp ["GCP Project (Customer)"]
-      subgraph vpc ["Customer VPC"]
-        workers["Worker Nodes\n(GCP VMs)"]
-        masters["Control Plane\n(Red Hat managed)"]
-        ilb["Internal LB\n(API + Apps)"]
-      end
-      nat["Cloud NAT\n(internet egress)"]
-      glb["GCP Load Balancer\n(ingress)"]
-    end
-    corp["Corporate\nNetwork"] -->|VPN/Interconnect| vpc
-    workers --> nat
-    glb --> ilb
-
-    style masters fill:#EE0000,color:white
-    style workers fill:#383838,color:#F0F0F0
-  ```
-
-  </template>
-</RhTwoColumn>
+</div>
 
 <!--
-I want to ground you in the platform before the BGP story. OpenShift Dedicated on GCP means the customer's VPC and worker nodes live in their project, while Red Hat runs the control plane. Workers reach the internet through Cloud NAT; the diagram is the mental model we'll keep coming back to when we talk about routing and firewalls.
+I want to ground you in the platform before the BGP story. OpenShift Dedicated on GCP means the customer's VPC and worker nodes live in their project, while Red Hat runs the control plane. Workers reach the internet through Cloud NAT; the architecture PNG is the mental model we'll keep coming back to when we talk about routing and firewalls. If the audience asks for detail: customer VPC and workers in their subnets, Red Hat runs API/etcd/ingress/SRE, Virt runs VMs in pods — all visible in the diagram.
 -->
 
 ---
@@ -223,12 +206,12 @@ The fix is BGP: advertise the CUDN /16 into the VPC so every worker's pod CIDR i
 
 <div class="mt-6 text-center text-[var(--rh-muted)] text-sm">
 
-*This is the first honest example of the human + AI split: domain authority on one side, protocol expertise on the other.*
+*Teaser for the split — after the agenda slide we’ll put up the full human-vs-AI scorecard, outsiders, and Daniel before the origin story.*
 
 </div>
 
 <!--
-I'll own this up front: I say "I can barely spell BGP"—and I mean it. What I brought was OSD, GCP, and OpenShift depth plus live cluster access; what the AI brought was real BGP mechanics, NCC and Cloud Router APIs, and the patience to chew through a 153-endpoint OCM OpenAPI spec. That's the collaboration model for the rest of the talk.
+I'll own this up front: I say "I can barely spell BGP"—and I mean it. What I brought was OSD, GCP, and OpenShift depth plus live cluster access; what the AI brought was real BGP mechanics, NCC and Cloud Router APIs, and the patience to chew through a 153-endpoint OCM OpenAPI spec. Right after "This Talk" we unpack the same idea in depth (two-column + outsiders + Daniel), then we start the project story in Section 2.
 -->
 
 ---
@@ -301,7 +284,7 @@ The spectrum runs from code autocomplete through chat assistants and tool-using 
 > *"Not a success story about AI being smart. A story about building an environment where AI can be disciplined."*
 
 <!--
-When AI is a partner, it keeps state in the repo—KNOWLEDGE.md, AGENTS.md, ARCHITECTURE.md—investigates before it edits, and self-reviews before it shows you work. Your job shifts to judgment, priorities, and knowing which question to ask. That's the contract I'll keep pointing to.
+When AI is a partner, it keeps state in the repo—KNOWLEDGE.md, AGENTS.md, ARCHITECTURE.md—investigates before it edits, and self-reviews before it shows you work. Your job shifts to judgment, priorities, and knowing which question to ask. After the agenda slide we’ll put up the **full** human-vs-AI two-column plus outsiders and Daniel—then the origin story.
 -->
 
 ---
@@ -322,20 +305,82 @@ Including a multi-day debugging investigation with packet captures, live cluster
 
 **What we'll cover:**
 
-1. The origin story
-2. Scaffolding the agent
-3. How we worked
-4. The knowledge system
-5. Novel debugging techniques
-6. Finding the smoking gun
-7. The human in the loop
-8. Takeaways
+1. **Who does what** — human, AI, and expert outsiders (before the story)
+2. The origin story
+3. The agent environment
+4. How we worked
+5. The knowledge system
+6. Novel debugging techniques
+7. Finding the smoking gun
+8. **In-loop moments** — interventions during the investigation (callbacks to #1)
+9. Takeaways
 
 </div>
 </div>
 
 <!--
-Seven weeks, two repos, about a hundred and ten sessions—one human, one AI—building BGP for OpenShift Virtualization on GCP from scratch, including a multi-day egress debug with PCAPs and a real smoking gun. I'll walk the origin story, scaffolding, how we worked, knowledge, debugging tricks, that investigation, and what I learned about staying in the loop.
+Seven weeks, two repos, about a hundred and ten sessions. Right after this outline: three slides that frame **who does what**—AI vs human vs people outside the chat—plus Daniel as a concrete outsider—*then* the origin story and the rest. The investigation section later is short on-purpose: you already have the role model; there we only surface the phrases that redirected the agent mid-crisis.
+-->
+
+---
+
+# The Human's Irreplaceable Role
+
+<RhTwoColumn>
+  <template #left>
+
+  **What the AI did well:**
+  - Maintained context across 65 sessions
+  - Ran parallel tcpdump across all workers
+  - Read PCAPs, queried Kubernetes, wrote Terraform
+  - Generated hypotheses consistent with the data
+  - Reviewed its own work before showing it
+
+  </template>
+  <template #right>
+
+  **What only the human could do:**
+  - Cross-domain pattern recognition (ROSA → GCP firewall)
+  - Knowing when to stop a false path
+  - Deciding which external threads were worth surfacing — **watercooler / Slack as R&D**, not noise
+  - Setting boundaries and priorities
+  - Asking the right question at the right time
+
+  </template>
+</RhTwoColumn>
+
+<!--
+We put this up front so the case study has a scorecard: left column is what the agent scaled; right column is what still needed Paul—especially feeding outsider signal into the session before it evaporated. The closing line of the talk (“engineering an environment”) is the same contract.
+-->
+
+---
+
+# Expert outsiders & the watercooler
+
+- **Outsiders with real craft** (another cloud, routing, kernels) see patterns your chat context never contains — they **collapse search space** the model cannot brute-force.
+- **Watercooler effect:** breakthroughs often arrive as **casual, low-stakes signal** — a Slack one-liner, a hallway “have you tried…?”, a link without a ticket. Social timing matters as much as the technical hint.
+- **Make it possible:** publish enough detail that experts can correct you; stay in **weak-tie, high-trust** networks; when someone credible speaks, **surface it into the agent’s context** before the moment evaporates.
+
+> *The breakthrough is rarely a formal review — it’s someone who doesn’t live in your repo noticing what everyone inside stopped seeing.*
+
+<!--
+Joint engineering with AI is not “lock yourself in a room with Cursor.” Harvest signal from people who aren’t in the session—Slack-as-watercooler is part of R&D infrastructure.
+-->
+
+---
+
+# Daniel Axelrod: The External Human in the Loop
+
+A Slack thread turned into three architectural changes:
+
+1. **"All workers as peers"** — Slack narration → changed from single-active to all-workers-as-BGP-peers
+2. **exec-then-SSH** — unlocked VM debugging from inside CUDN pods
+3. **Terminus-2 link** — reference to Harbor's tmux-based agent led directly to tmux MCP adoption (same day)
+
+> *"Expert practitioners drop high-signal hints in casual conversation. Learn to hear them."*
+
+<!--
+Daniel wasn’t in the Cursor sessions, but Slack from him changed architecture three times—concrete proof of the outsider + watercooler slide you just saw. Now the origin story: how we got into BGP on GCP in the first place.
 -->
 
 ---
@@ -357,7 +402,7 @@ Here's where the project actually started—the Terraform provider wasn't a side
 A story unto itself — the proving ground.
 
 - Paul wanted a TF provider for OSD on GCP. No one had built one. He decided to build it himself.
-- Setup: **keel scaffolding first**, then `references/` folder:
+- Setup: **Keel + AGENTS.md first**, then `references/` folder:
   - RHCS TF provider source, OCM SDK, OCM CLI, OCM OpenAPI spec (153 endpoints), GCP OSD modules
 - Result: a working, published Terraform provider — in what would normally be weeks of solo engineering
 
@@ -367,7 +412,7 @@ A story unto itself — the proving ground.
      Use Gemini image generation or similar. Style: technical diagram, dark background, RH red accent. -->
 
 <!--
-Nobody had shipped a Terraform provider for OSD on GCP, so I built one first—Keel scaffolding, then a fat references/ folder: RHCS provider source, OCM SDK, CLI, the full OpenAPI spec with 153 endpoints, and GCP modules. The lesson I want you to steal: don't make the model guess; clone the authoritative sources and work from those.
+Nobody had shipped a Terraform provider for OSD on GCP, so I built one first—Keel plus AGENTS.md and rules, then a fat references/ folder: RHCS provider source, OCM SDK, CLI, the full OpenAPI spec with 153 endpoints, and GCP modules. The lesson I want you to steal: don't make the model guess; clone the authoritative sources and work from those.
 -->
 
 ---
@@ -431,7 +476,7 @@ I use Claude to explore and scope—it gave us a big strawman. Cursor, with clus
 > *"I've been planning on taking a run at it."*
 
 Same method that worked for the TF provider:
-- Keel scaffolding first
+- Keel + AGENTS.md first
 - References folder: GCP NCC docs, OCM SDK, rosa-bgp reference implementation
 - Joint engineering from session one
 
@@ -447,10 +492,10 @@ class: section-header
 ---
 
 # Section 3
-## Scaffolding the Agent
+## The agent environment
 
 <!--
-Next I want to show what actually made the agent disciplined—scaffolding isn't glamorous, but it's the difference between one-off prompts and sixty-five consistent sessions.
+“Scaffolding” often means bootstrapping code; here we mean the environment around the model: AGENTS.md, Keel-synced rules, references, architecture docs—boring on purpose. It’s the difference between one-off prompts and sixty-five consistent sessions. That matches the closing line: you’re engineering an environment, not firing prompts into a void.
 -->
 
 ---
@@ -471,7 +516,7 @@ Next I want to show what actually made the agent disciplined—scaffolding isn't
      Three stacked horizontal layers with arrows flowing down. RH dark theme. -->
 
 <!--
-Project Keel is my open-source way to author AGENTS.md and layered rules once and sync them into Cursor, Copilot, and friends—the Linux Foundation AGENTS.md standard. The meta-point: I built the scaffolding tool, then used it on this repo so rules live in Git, get reviewed, and carry real audit history.
+Project Keel is my open-source way to author AGENTS.md and layered rules once and sync them into Cursor, Copilot, and friends—the Linux Foundation AGENTS.md standard. The meta-point: I built Keel for that workflow, then used it on this repo so rules live in Git, get reviewed, and carry real audit history.
 -->
 
 ---
@@ -503,7 +548,7 @@ Three sections moved the needle most: evidence before edits in debugging, mandat
 
 ---
 
-# When Scaffolding Is Missing: The `depends_on` Footgun
+# When the rulebook is silent: The `depends_on` footgun
 
 ```hcl
 # BAD — defers all data sources inside module.spoke to apply-time
@@ -523,10 +568,10 @@ module "route" {
 
 **Fix:** written into `AGENTS.md` and `terraform.md` — never repeated across the remaining 50 sessions
 
-> *"AI coding mistakes are often scaffolding gaps, not model failures. Fix the rules, not the model."*
+> *"AI coding mistakes are often gaps in the rules, not model failures. Fix the rules, not the model."*
 
 <!--
-This is the canonical Terraform footgun: depends_on on a module defers every data source inside that module to apply time, which breaks for_each keys at plan. The fix is implicit dependency—pass module.spoke.id instead. We wrote that into AGENTS.md and terraform.md and didn't repeat it across the next fifty sessions. That's fixing scaffolding, not blaming the model.
+This is the canonical Terraform footgun: depends_on on a module defers every data source inside that module to apply time, which breaks for_each keys at plan. The fix is implicit dependency—pass module.spoke.id instead. We wrote that into AGENTS.md and terraform.md and didn't repeat it across the next fifty sessions. That's fixing the environment, not blaming the model.
 -->
 
 ---
@@ -810,29 +855,14 @@ This slide is why we burned time "not seeing" traffic: OVS grabs packets before 
 
 ---
 
-# Canvas → Slidev: Animated Packet Flows
+# Canvas: Animated Packet Flows
 
-The packet flow diagrams were originally built as standalone HTML canvas artifacts.
-For this presentation, they are rebuilt natively as Vue components.
-
-**The ECMP drop scenario:** packet from CUDN VM hits wrong ECMP worker, return path fails
+ **ECMP drop:** CUDN VM egress hits the wrong worker — return path fails.
 
 <PacketFlowEcmp />
 
 <!--
-We first built these flows as HTML canvas experiments; for this deck they're Vue components in Slidev. Land the scenario: ECMP sends the return to a worker that isn't the one that originated the session—classic asymmetric path—and the animation is the teaching prop.
--->
-
----
-
-# Canvas → Slidev: The Success Path
-
-**After the fix:** firewall rule covers `0.0.0.0/0`, any worker can handle the return
-
-<PacketFlowSuccess />
-
-<!--
-After the firewall fix, return traffic can hit any worker handling the return path—no more silent drops from a too-narrow rule. Pair this mentally with the previous slide: same ECMP topology, different edge behavior once the hub allows the real return sources.
+I wanted to visualize the packet flows based off the actual packet captures and a new feature CANVAS had just come out which created an amazing report with the animated flows etc,  however the cursor canvas isn't really sharable, so I asked it to render them in html instead.   here they are rendered again for the slide deck ...  a little off because of the sizing of the slide, but you get the idea.
 -->
 
 ---
@@ -844,7 +874,7 @@ class: section-header
 ## The Investigation: Finding the Smoking Gun
 
 <!--
-This is the week-long mystery: about twenty-two percent success from CUDN VMs on cz-demo1, clean OVN flows, BGP up—until one firewall rule change made it fifty out of fifty.
+This is the week-long mystery: about twenty-two percent success from CUDN VMs on cz-demo1, clean OVN flows, BGP up—until one firewall rule change made it fifty out of fifty. The next two slides are architecture knowledge from the same effort: single-VPC dead end, then hub/spoke + MASQUERADE (not Cloud NAT for CUDN).
 -->
 
 ---
@@ -866,6 +896,60 @@ ct_state=+trk-est,ip actions=drop   # ← suspected culprit
 
 <!--
 Symptom recap: intermittent internet egress from CUDN VMs—roughly twenty-two percent—while control-plane paths looked fine. Our first read was OVN conntrack dropping non-established traffic; the flow snippet on screen is what made that hypothesis feel honest.
+-->
+
+---
+
+# Single VPC: Cloud NAT and CUDN overlay
+
+<div class="text-sm text-[var(--rh-muted)] mb-2">Preserved egress uses OVN overlay sources — not addresses on Cloud NAT’s subnet/NIC “known” list.</div>
+
+```mermaid
+flowchart LR
+  subgraph one["Single customer VPC"]
+    direction TB
+    ocp[OpenShift + BGP + Cloud Router]
+    cudn[CUDN / VMs<br/>src = overlay /16]
+    cnat[Cloud NAT<br/>subnet + NIC ranges only]
+    ocp --> cudn
+    cudn -->|preserved egress| cnat
+  end
+  cnat -->|overlay ∉ known list| dead[✗]
+
+  style dead fill:#EE0000,color:white
+  style cnat fill:#383838,color:#F0F0F0
+```
+
+<!--
+Single-VPC OSD mental model: workers, Cloud Router, Cloud NAT in one VPC. CUDN traffic leaves with the real overlay IP as source. Cloud NAT only translates sources GCP treats as assigned on the VM interface (primary or alias from a secondary range on the subnet). KNOWLEDGE.md § “GCP CUDN egress, Cloud NAT, and overlay source addresses”. Registering the overlay range for NAT collides with BGP owning the same prefix as dynamic routes—two ownership stories.
+-->
+
+---
+
+# Hub + spoke: egress via NAT VMs (not Cloud NAT for CUDN)
+
+<div class="text-sm text-[var(--rh-muted)] mb-2">Spoke default route to hub ILB; MASQUERADE on NAT VMs. Hub Cloud NAT is for hub subnet ops — not spoke CUDN sources.</div>
+
+```mermaid
+flowchart LR
+  subgraph spoke["Spoke VPC"]
+    w[OpenShift + BGP + CUDN]
+  end
+  subgraph hub["Hub VPC"]
+    ilb[Internal ILB]
+    mig[NAT VM MIG<br/>MASQUERADE]
+    mgmt[Cloud NAT<br/>hub mgmt only]
+    ilb --> mig --> inet((Internet))
+    mgmt -.->|separate path| inet
+  end
+  w -->|"0.0.0.0/0 → ILB IP"| ilb
+
+  style mig fill:#5BA352,color:white
+  style mgmt fill:#383838,color:#A8A8A8
+```
+
+<!--
+Peering + custom routes export/import; spoke installs default via next_hop_ilb to the hub forwarding rule IP. Overlay sources hit Linux on the NAT VM and get rewritten there—even hub VPC Cloud NAT wouldn’t classify spoke-originated overlay as “local” to its subnet list. See ARCHITECTURE.md hub vs spoke and modules osd-hub-vpc / osd-spoke-vpc.
 -->
 
 ---
@@ -927,30 +1011,46 @@ The question I actually asked out loud was whether GCP's stateful edge was the p
 
 # Before / After: Firewall Rule
 
-```mermaid
-graph TD
-  subgraph before ["Before: 22% success"]
-    vm1["CUDN VM"] -->|"egress"| cr1["Cloud Router"]
-    cr1 -->|"internet"| ext1["External Server"]
-    ext1 -->|"return src=203.x.x.x"| fw1["GCP Firewall<br/>only allows 10.20.0.0/24"]
-    fw1 -->|"DROP 78%"| x1["✗"]
-    fw1 -->|"lucky ECMP hit 22%"| vm1
-  end
+### Before: 22% success
 
-  subgraph after ["After: 100% success"]
-    vm2["CUDN VM"] -->|"egress"| cr2["Cloud Router"]
-    cr2 -->|"internet"| ext2["External Server"]
-    ext2 -->|"return src=203.x.x.x"| fw2["GCP Firewall<br/>allow 0.0.0.0/0"]
-    fw2 -->|"ALLOW 100%"| vm2
-  end
+```mermaid
+graph LR
+  vm1["CUDN VM"] -->|"egress"| cr1["Cloud Router"]
+  cr1 -->|"internet"| ext1["External Server"]
+  ext1 -->|"return src=203.x.x.x"| fw1["GCP Firewall<br/>only allows 10.20.0.0/24"]
+  fw1 -->|"DROP 78%"| x1["✗"]
+  fw1 -->|"lucky ECMP hit 22%"| vm1
 
   style fw1 fill:#EE0000,color:white
-  style fw2 fill:#5BA352,color:white
   style x1 fill:#EE0000,color:white
+```
+
+### After: 100% success
+
+```mermaid
+graph LR
+  vm2["CUDN VM"] -->|"egress"| cr2["Cloud Router"]
+  cr2 -->|"internet"| ext2["External Server"]
+  ext2 -->|"return src=203.x.x.x"| fw2["GCP Firewall<br/>allow 0.0.0.0/0"]
+  fw2 -->|"ALLOW 100%"| vm2
+
+  style fw2 fill:#5BA352,color:white
 ```
 
 <!--
 Use this slide to narrate the luck versus structure story: before, most return packets hit a firewall that only liked the spoke subnet, so you saw roughly twenty-two percent "lucky" ECMP paths; after, the rule admits real internet sources and the diagram is boring green checkmarks.
+-->
+
+---
+
+# Canvas → Slidev: The Success Path
+
+**After the fix:** hub firewall allows `0.0.0.0/0` — any worker can take the return.
+
+<PacketFlowSuccess />
+
+<!--
+After the firewall fix, return traffic can hit any worker handling the return path—no more silent drops from a too-narrow rule. Pair this mentally with the ECMP drop slide in section 6: same topology, different edge behavior once the hub allows the real return sources.
 -->
 
 ---
@@ -962,7 +1062,7 @@ class: section-header
 ## Human in the Loop
 
 <!--
-I'll get personal for a minute—these weren't heroic monologues; they were short interventions that redirected weeks of agent effort.
+Short section on purpose: we already framed human vs AI and outsiders at the start. Here—only the **in-flight** phrases that redirected the agent during the investigation week. Same patterns, tighter scope.
 -->
 
 ---
@@ -984,53 +1084,6 @@ I'll get personal for a minute—these weren't heroic monologues; they were shor
 
 <!--
 These rows are the actual phrases I remember: "do nothing" killed a bad branch early; "stop talking about EgressIP" ended a solved tangent; "is it the GCP stateful firewall?" opened the fix; demanding validated commands changed how the agent behaved permanently; "if ROSA works, why?" forced the cross-cloud compare.
--->
-
----
-
-# Daniel Axelrod: The External Human in the Loop
-
-A Slack thread turned into three architectural changes:
-
-1. **"All workers as peers"** — Slack narration → changed from single-active to all-workers-as-BGP-peers
-2. **exec-then-SSH** — unlocked VM debugging from inside CUDN pods
-3. **Terminus-2 link** — reference to Harbor's tmux-based agent led directly to tmux MCP adoption (same day)
-
-> *"Expert practitioners drop high-signal hints in casual conversation. Learn to hear them."*
-
-<!--
-Daniel Axelrod wasn't in the Cursor sessions, but Slack from him changed architecture three times: all workers as BGP peers instead of single-active, exec-then-SSH for debugging inside CUDN pods, and a link to Harbor's Terminus-2 tmux agent—which sent me to tmux MCP the same day.
--->
-
----
-
-# The Human's Irreplaceable Role
-
-<RhTwoColumn>
-  <template #left>
-
-  **What the AI did well:**
-  - Maintained context across 65 sessions
-  - Ran parallel tcpdump across all workers
-  - Read PCAPs, queried Kubernetes, wrote Terraform
-  - Generated hypotheses consistent with the data
-  - Reviewed its own work before showing it
-
-  </template>
-  <template #right>
-
-  **What only the human could do:**
-  - Cross-domain pattern recognition (ROSA → GCP firewall)
-  - Knowing when to stop a false path
-  - Deciding which external threads were worth surfacing
-  - Setting boundaries and priorities
-  - Asking the right question at the right time
-
-  </template>
-</RhTwoColumn>
-
-<!--
-Left column is what the agent scaled: long-horizon context, parallel captures, Terraform, hypotheses, self-review. Right column is what still needs me: noticing ROSA versus GCP firewall semantics, stopping false paths, picking which Slack thread matters, and asking the one question that collapses the search space.
 -->
 
 ---
@@ -1084,21 +1137,23 @@ class: section-header
 ## Takeaways
 
 <!--
-I'll close with patterns you can steal tomorrow—scaffolding first, tools with real cluster and PCAP access, knowledge with scores, context hygiene, and the shifted human job description.
+I'll close with patterns you can steal tomorrow—environment first, tools, knowledge, context hygiene—and **reminders of the opening**: human vs AI scorecard, outsiders / watercooler, feed that signal into the agent.
 -->
 
 ---
 
 # Patterns to Steal
 
-1. **Scaffold first** — `AGENTS.md` + keel rules + `ARCHITECTURE.md` before writing any code
+1. **Environment first** — `AGENTS.md` + Keel rules + `ARCHITECTURE.md` before writing any code
+    * tools like [Spec Kit](https://github.com/github/spec-kit) push the same rhythm (specs, plans, and checklists before implementation)
 2. **Give the AI access to the systems it's reasoning about** — MCP tools are force multipliers; without them the agent is blind
 3. **Manage knowledge deliberately** — `KNOWLEDGE.md` with confidence scores retained context across 65 sessions
 4. **Manage context actively** — don't let sessions exceed 50%; start fresh; dispatch sub-agents
 5. **The human's role shifts** — from writing code to providing judgment, direction, and domain authority
+6. **Callbacks to how we opened** — same two-column split in your org; **expert outsiders + watercooler** (Slack, hallway) as R&D inputs; surface credible hints into the agent’s context before they evaporate
 
 <!--
-If you remember five things: scaffold before code; give the agent MCPs so it isn't guessing blind; run KNOWLEDGE.md like a lab notebook; cap context and restart; accept that your job is judgment and domain authority, not typing the most lines.
+If you remember six things: lock in the agent environment before code (Keel/AGENTS.md here; Spec Kit or similar if that fits your stack); give the agent MCPs so it isn't guessing blind; run KNOWLEDGE.md like a lab notebook; cap context and restart; accept that your job is judgment and domain authority; replay the opening frame—who does what, who isn’t in the chat but still moves architecture.
 -->
 
 ---
@@ -1113,7 +1168,7 @@ If you remember five things: scaffold before code; give the agent MCPs so it isn
     ['Wireshark MCP', 'Programmatic PCAP querying — retransmission filters, flow analysis'],
     ['Context7', 'GCP and OCP authoritative docs fetched at decision time, not from memory'],
     ['Canvas → Slidev', 'Shareable animated diagrams as first-class artifacts'],
-    ['Keel / AGENTS.md', 'Agent scaffolding — the environment that made discipline possible'],
+    ['Keel / AGENTS.md', 'Agent environment — rules in Git, reviewed like code'],
   ]"
 />
 

@@ -108,13 +108,13 @@ Details: [archive/ILB-vs-BGP.md § Additional IAM Requirements](../archive/ILB-v
 From the **repo root**:
 
 ```bash
-make create                  # bgp.run + bgp.deploy-operator (GHCR); then watch oc get nodes … until Ready, make bgp.e2e
+make create                  # bgp.run + bgp.deploy-operator (GHCR) + virt.deploy; then watch oc get nodes … until Ready, make bgp.e2e
 make dev                     # same with in-cluster binary build; then watch oc get nodes … until Ready, make bgp.e2e
 # When finished:
-make destroy                 # bgp.destroy-operator + bgp.teardown
+make destroy                 # virt.destroy-storage + bgp.destroy-operator + bgp.teardown
 ```
 
-**Destroy:** From the repo root, **`make destroy`** (or **`make bgp.destroy-operator`** then **`make bgp.teardown`**) when you used **`make bgp.deploy-operator`**. The operator's finalizer cleans up GCP/OpenShift state when the **`BGPRoutingConfig`** CR is deleted, then IAM Terraform is destroyed, followed by the cluster and **`wif_config/`**. Remove any remaining OpenShift objects ([§ Teardown](#teardown)).
+**Destroy:** From the repo root, **`make destroy`** (or **`make virt.destroy-storage`**, then **`make bgp.destroy-operator`**, then **`make bgp.teardown`**) when you used **`make bgp.deploy-operator`**. **`virt.destroy-storage`** removes KubeVirt workloads and pool disks while the API is still up. The operator's finalizer cleans up GCP/OpenShift state when the **`BGPRoutingConfig`** CR is deleted, then IAM Terraform is destroyed, followed by the cluster and **`wif_config/`**. Remove any remaining OpenShift objects ([§ Teardown](#teardown)).
 
 **Terraform passthrough:** `make bgp.run TF_VARS="..." EXTRA_TF_VARS="..."`.
 
@@ -231,8 +231,9 @@ Same **`ping`** / **`curl`** sequence as [Quick start (pod and echo VM)](#quick-
 From the **repo root** (recommended):
 
 ```bash
-make destroy                    # bgp.destroy-operator + bgp.teardown
+make destroy                    # virt.destroy-storage + bgp.destroy-operator + bgp.teardown
 # or, step by step:
+make virt.destroy-storage       # KubeVirt VMs, PVCs/snapshots, pool disks (while oc still works)
 make bgp.destroy-operator       # delete BGPRoutingConfig (finalizer cleanup) + operator resources + CRDs + IAM terraform destroy
 make bgp.teardown               # terraform destroy cluster_bgp_routing/ then wif_config/
 ```
@@ -280,4 +281,4 @@ Shared with ILB where applicable (**`canIpForward`**, worker replacement). **BGP
 
 ## Makefile targets for this directory only
 
-From repo root: **`make bgp.init`**, **`bgp.plan`**, **`bgp.apply`** run Terraform **only** in **`cluster_bgp_routing/`**. Use **`make destroy`** to remove the operator + **`controller_gcp_iam/`** then this stack and **`wif_config/`**; if you never ran **`make bgp.deploy-operator`**, **`make bgp.teardown`** alone may be enough once OpenShift objects are gone.
+From repo root: **`make bgp.init`**, **`bgp.plan`**, **`bgp.apply`** run Terraform **only** in **`cluster_bgp_routing/`**. Use **`make destroy`** to run **`virt.destroy-storage`**, remove the operator + **`controller_gcp_iam/`**, then this stack and **`wif_config/`**; if you never ran **`make virt.deploy`** / **`make bgp.deploy-operator`**, **`make bgp.teardown`** alone may be enough once OpenShift objects are gone.

@@ -77,6 +77,7 @@ module "spoke" {
   psc_subnet_cidr           = var.psc_subnet_cidr
   enable_iap_ssh            = var.spoke_enable_iap_ssh
   hub_egress_cidr           = module.hub.egress_subnet_cidr
+  enable_cudn_egress_return = var.spoke_enable_cudn_egress_return
 
   depends_on = [data.google_compute_zones.available]
 }
