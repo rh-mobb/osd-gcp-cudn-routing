@@ -1,0 +1,1 @@
+import{o as t,e as r,g as e,i as o}from"./modules/vue-CvrGP1al.js";import{u as a}from"./slidev/context-Wf9NEC0p.js";const c={class:"cols-2"},l={class:"left"},i={class:"right"},h={__name:"RhTwoColumn",setup(n){return a(),(s,_)=>(t(),r("div",c,[e("div",l,[o(s.$slots,"left")]),e("div",i,[o(s.$slots,"right")])]))}};export{h as _};
