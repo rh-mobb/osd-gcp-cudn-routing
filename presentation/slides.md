@@ -30,6 +30,42 @@ Welcome everyone. I'm Paul Czarkowski, a Managed OpenShift Black Belt at Red Hat
 
 ---
 
+# Meta: This Deck Was Built the Same Way
+
+<RhTwoColumn>
+  <template #left>
+
+  **What I asked for:**
+  > *"Go build me a conference presentation about this project."*
+
+  **What Cursor decided:**
+  - Fetched Red Hat public brand guidelines → built a custom Slidev theme
+  - Chose Slidev (HTML/Vue) over PowerPoint → runs on GitHub Pages
+  - Wrote the GitHub Actions CI/CD pipeline
+  - Structured sections, diagrams, and speaker notes
+
+  </template>
+  <template #right>
+
+  **What I coached:**
+
+  First draft: too focused on the BGP solution and the code
+
+  *"Tell the story of **how** we built it, not **what** we built."*
+
+  Multiple rounds of redirection until it landed on the co-engineering frame you're watching now.
+
+  </template>
+</RhTwoColumn>
+
+> *"Same dynamic as the project: I set the direction, Cursor made the decisions, I corrected the story."*
+
+<!--
+This is worth pausing on: before I tell you about joint engineering, let me show you that this deck is itself a product of it. I gave one instruction—build a conference talk about this project—and the AI decided to fetch the Red Hat brand standards, picked Slidev because it runs on GitHub Pages, wrote the GH Actions, and built out the structure. My job was coaching the narrative: the first version was a technical deep-dive into BGP and GCP NCC. I kept redirecting: less about what we built, more about how we built it together. That editorial loop is the same dynamic as everything else in this talk.
+-->
+
+---
+
 # Meet the Team
 
 <div class="cols-2 mt-2 gap-6 text-sm leading-snug [&_h3]:!text-xl [&_h3]:!mt-0 [&_h3]:!mb-1">
@@ -75,6 +111,187 @@ Investigates before guessing; self-reviews output. No BBQ — understands smoked
 
 <!--
 Quick speaker intros — keep this light and fast, 60 seconds max. The joke about "cannot spell BGP" lands well here and sets up the collaboration frame. The Cursor bio gets a laugh from technical audiences who've worked with AI tools.
+-->
+
+---
+
+# This Talk
+
+<div class="cols-2">
+<div>
+
+**7 weeks · 2 repos · 110 sessions**
+
+One human + one AI building a production BGP routing system for OpenShift Virtualization on GCP — from scratch.
+
+Including a multi-day debugging investigation with packet captures, live cluster inspection, and a smoking-gun discovery.
+
+</div>
+<div>
+
+**What we'll cover:**
+
+1. **Who does what** — human, AI, and expert outsiders (before the story)
+2. The origin story
+3. The agent environment
+4. How we worked
+5. The knowledge system
+6. Novel debugging techniques
+7. Finding the smoking gun
+8. **In-loop moments** — interventions during the investigation (callbacks to #1)
+9. Takeaways
+
+</div>
+</div>
+
+<!--
+Seven weeks, two repos, about a hundred and ten sessions. Right after this outline: three slides that frame **who does what**—AI vs human vs people outside the chat—plus Daniel as a concrete outsider—*then* the origin story and the rest. The investigation section later is short on-purpose: you already have the role model; there we only surface the phrases that redirected the agent mid-crisis.
+-->
+
+---
+layout: section
+class: section-header
+---
+
+# Section 1
+## What Is Joint Engineering?
+
+<!--
+Now let's look at what I actually mean by "joint engineering" versus just using an AI as a faster autocomplete—because that framing is what everything else hangs on.
+-->
+
+---
+
+# Vibe Coding vs. Joint Engineering
+
+<RhTwoColumn>
+  <template #left>
+
+  ### Vibe Coding
+  - Generate code, paste it in
+  - Hope it works, iterate blindly
+  - AI as a fast autocomplete
+  - No shared context, no accountability
+
+  </template>
+  <template #right>
+
+  ### Joint Engineering
+  - Shared context, accumulated knowledge
+  - Evidence-based debugging
+  - AI investigates before guessing
+  - Mutual accountability
+
+  </template>
+</RhTwoColumn>
+
+<!--
+Speaker note: The framing here sets everything that follows. The question isn't
+"is AI useful?" — it's "what kind of use produces reliable production engineering?"
+-->
+
+---
+
+# The Spectrum of AI Use
+
+<SpectrumDiagram />
+
+<div class="mt-6 text-[var(--rh-muted)] text-sm">
+
+This talk is about the rightmost position — and what it takes to get there.
+
+</div>
+
+<!--
+The spectrum runs from code autocomplete through chat assistants and tool-using agents to what I'm calling a joint engineering partner. This talk isn't cheerleading for "smarter models"—it's about what you have to build around the model to land on that right-hand side reliably.
+-->
+
+---
+
+# What Changes When AI Is a Partner
+
+- **Maintains state across sessions** — KNOWLEDGE.md, AGENTS.md, ARCHITECTURE.md
+- **Investigates before guessing** — evidence-based debugging section in AGENTS.md
+- **Reviews its own work** — mandatory self-review before every response
+- **You provide what only a human can**: judgment, priorities, domain authority, the right question at the right time
+
+> *"Not a success story about AI being smart. A story about building an environment where AI can be disciplined."*
+
+<!--
+When AI is a partner, it keeps state in the repo—KNOWLEDGE.md, AGENTS.md, ARCHITECTURE.md—investigates before it edits, and self-reviews before it shows you work. Your job shifts to judgment, priorities, and knowing which question to ask. After the agenda slide we’ll put up the **full** human-vs-AI two-column plus outsiders and Daniel—then the origin story.
+-->
+
+---
+
+# The Human's Irreplaceable Role
+
+<RhTwoColumn>
+  <template #left>
+
+  **What the AI did well:**
+  - Maintained context across 65 sessions
+  - Ran parallel tcpdump across all workers
+  - Read PCAPs, queried Kubernetes, wrote Terraform
+  - Generated hypotheses consistent with the data
+  - Reviewed its own work before showing it
+
+  </template>
+  <template #right>
+
+  **What only the human could do:**
+  - Cross-domain pattern recognition (ROSA → GCP firewall)
+  - Knowing when to stop a false path
+  - Deciding which external threads were worth surfacing — **watercooler / Slack as R&D**, not noise
+  - Setting boundaries and priorities
+  - Asking the right question at the right time
+
+  </template>
+</RhTwoColumn>
+
+<!--
+We put this up front so the case study has a scorecard: left column is what the agent scaled; right column is what still needed Paul—especially feeding outsider signal into the session before it evaporated. The closing line of the talk (“engineering an environment”) is the same contract.
+-->
+
+---
+
+# Expert outsiders & the watercooler
+
+- **Outsiders with real craft** (another cloud, routing, kernels) see patterns your chat context never contains — they **collapse search space** the model cannot brute-force.
+- **Watercooler effect:** breakthroughs often arrive as **casual, low-stakes signal** — a Slack one-liner, a hallway “have you tried…?”, a link without a ticket. Social timing matters as much as the technical hint.
+- **Make it possible:** publish enough detail that experts can correct you; stay in **weak-tie, high-trust** networks; when someone credible speaks, **surface it into the agent’s context** before the moment evaporates.
+
+> *The breakthrough is rarely a formal review — it’s someone who doesn’t live in your repo noticing what everyone inside stopped seeing.*
+
+<!--
+Joint engineering with AI is not “lock yourself in a room with Cursor.” Harvest signal from people who aren’t in the session—Slack-as-watercooler is part of R&D infrastructure.
+-->
+
+---
+
+# Daniel Axelrod: The External Human in the Loop
+
+A Slack thread turned into three architectural changes:
+
+1. **"All workers as peers"** — Slack narration → changed from single-active to all-workers-as-BGP-peers
+2. **exec-then-SSH** — unlocked VM debugging from inside CUDN pods
+3. **Terminus-2 link** — reference to Harbor's tmux-based agent led directly to tmux MCP adoption (same day)
+
+> *"Expert practitioners drop high-signal hints in casual conversation. Learn to hear them."*
+
+<!--
+Daniel wasn’t in the Cursor sessions, but Slack from him changed architecture three times—concrete proof of the outsider + watercooler slide you just saw. Now the origin story: how we got into BGP on GCP in the first place.
+-->
+
+---
+layout: section
+class: section-header
+---
+
+# Section 2
+## The Origin Story
+
+<!--
+Here's where the project actually started—the Terraform provider wasn't a sideshow; it was the proving ground for the same joint-engineering pattern we reused for BGP.
 -->
 
 ---
@@ -204,195 +421,8 @@ The fix is BGP: advertise the CUDN /16 into the VPC so every worker's pod CIDR i
 </div>
 </div>
 
-<div class="mt-6 text-center text-[var(--rh-muted)] text-sm">
-
-*Teaser for the split — after the agenda slide we’ll put up the full human-vs-AI scorecard, outsiders, and Daniel before the origin story.*
-
-</div>
-
 <!--
-I'll own this up front: I say "I can barely spell BGP"—and I mean it. What I brought was OSD, GCP, and OpenShift depth plus live cluster access; what the AI brought was real BGP mechanics, NCC and Cloud Router APIs, and the patience to chew through a 153-endpoint OCM OpenAPI spec. Right after "This Talk" we unpack the same idea in depth (two-column + outsiders + Daniel), then we start the project story in Section 2.
--->
-
----
-layout: section
-class: section-header
----
-
-# Section 1
-## What Is Joint Engineering?
-
-<!--
-Now let's look at what I actually mean by "joint engineering" versus just using an AI as a faster autocomplete—because that framing is what everything else hangs on.
--->
-
----
-
-# Vibe Coding vs. Joint Engineering
-
-<RhTwoColumn>
-  <template #left>
-
-  ### Vibe Coding
-  - Generate code, paste it in
-  - Hope it works, iterate blindly
-  - AI as a fast autocomplete
-  - No shared context, no accountability
-
-  </template>
-  <template #right>
-
-  ### Joint Engineering
-  - Shared context, accumulated knowledge
-  - Evidence-based debugging
-  - AI investigates before guessing
-  - Mutual accountability
-
-  </template>
-</RhTwoColumn>
-
-<!--
-Speaker note: The framing here sets everything that follows. The question isn't
-"is AI useful?" — it's "what kind of use produces reliable production engineering?"
--->
-
----
-
-# The Spectrum of AI Use
-
-<SpectrumDiagram />
-
-<div class="mt-6 text-[var(--rh-muted)] text-sm">
-
-This talk is about the rightmost position — and what it takes to get there.
-
-</div>
-
-<!--
-The spectrum runs from code autocomplete through chat assistants and tool-using agents to what I'm calling a joint engineering partner. This talk isn't cheerleading for "smarter models"—it's about what you have to build around the model to land on that right-hand side reliably.
--->
-
----
-
-# What Changes When AI Is a Partner
-
-- **Maintains state across sessions** — KNOWLEDGE.md, AGENTS.md, ARCHITECTURE.md
-- **Investigates before guessing** — evidence-based debugging section in AGENTS.md
-- **Reviews its own work** — mandatory self-review before every response
-- **You provide what only a human can**: judgment, priorities, domain authority, the right question at the right time
-
-> *"Not a success story about AI being smart. A story about building an environment where AI can be disciplined."*
-
-<!--
-When AI is a partner, it keeps state in the repo—KNOWLEDGE.md, AGENTS.md, ARCHITECTURE.md—investigates before it edits, and self-reviews before it shows you work. Your job shifts to judgment, priorities, and knowing which question to ask. After the agenda slide we’ll put up the **full** human-vs-AI two-column plus outsiders and Daniel—then the origin story.
--->
-
----
-
-# This Talk
-
-<div class="cols-2">
-<div>
-
-**7 weeks · 2 repos · 110 sessions**
-
-One human + one AI building a production BGP routing system for OpenShift Virtualization on GCP — from scratch.
-
-Including a multi-day debugging investigation with packet captures, live cluster inspection, and a smoking-gun discovery.
-
-</div>
-<div>
-
-**What we'll cover:**
-
-1. **Who does what** — human, AI, and expert outsiders (before the story)
-2. The origin story
-3. The agent environment
-4. How we worked
-5. The knowledge system
-6. Novel debugging techniques
-7. Finding the smoking gun
-8. **In-loop moments** — interventions during the investigation (callbacks to #1)
-9. Takeaways
-
-</div>
-</div>
-
-<!--
-Seven weeks, two repos, about a hundred and ten sessions. Right after this outline: three slides that frame **who does what**—AI vs human vs people outside the chat—plus Daniel as a concrete outsider—*then* the origin story and the rest. The investigation section later is short on-purpose: you already have the role model; there we only surface the phrases that redirected the agent mid-crisis.
--->
-
----
-
-# The Human's Irreplaceable Role
-
-<RhTwoColumn>
-  <template #left>
-
-  **What the AI did well:**
-  - Maintained context across 65 sessions
-  - Ran parallel tcpdump across all workers
-  - Read PCAPs, queried Kubernetes, wrote Terraform
-  - Generated hypotheses consistent with the data
-  - Reviewed its own work before showing it
-
-  </template>
-  <template #right>
-
-  **What only the human could do:**
-  - Cross-domain pattern recognition (ROSA → GCP firewall)
-  - Knowing when to stop a false path
-  - Deciding which external threads were worth surfacing — **watercooler / Slack as R&D**, not noise
-  - Setting boundaries and priorities
-  - Asking the right question at the right time
-
-  </template>
-</RhTwoColumn>
-
-<!--
-We put this up front so the case study has a scorecard: left column is what the agent scaled; right column is what still needed Paul—especially feeding outsider signal into the session before it evaporated. The closing line of the talk (“engineering an environment”) is the same contract.
--->
-
----
-
-# Expert outsiders & the watercooler
-
-- **Outsiders with real craft** (another cloud, routing, kernels) see patterns your chat context never contains — they **collapse search space** the model cannot brute-force.
-- **Watercooler effect:** breakthroughs often arrive as **casual, low-stakes signal** — a Slack one-liner, a hallway “have you tried…?”, a link without a ticket. Social timing matters as much as the technical hint.
-- **Make it possible:** publish enough detail that experts can correct you; stay in **weak-tie, high-trust** networks; when someone credible speaks, **surface it into the agent’s context** before the moment evaporates.
-
-> *The breakthrough is rarely a formal review — it’s someone who doesn’t live in your repo noticing what everyone inside stopped seeing.*
-
-<!--
-Joint engineering with AI is not “lock yourself in a room with Cursor.” Harvest signal from people who aren’t in the session—Slack-as-watercooler is part of R&D infrastructure.
--->
-
----
-
-# Daniel Axelrod: The External Human in the Loop
-
-A Slack thread turned into three architectural changes:
-
-1. **"All workers as peers"** — Slack narration → changed from single-active to all-workers-as-BGP-peers
-2. **exec-then-SSH** — unlocked VM debugging from inside CUDN pods
-3. **Terminus-2 link** — reference to Harbor's tmux-based agent led directly to tmux MCP adoption (same day)
-
-> *"Expert practitioners drop high-signal hints in casual conversation. Learn to hear them."*
-
-<!--
-Daniel wasn’t in the Cursor sessions, but Slack from him changed architecture three times—concrete proof of the outsider + watercooler slide you just saw. Now the origin story: how we got into BGP on GCP in the first place.
--->
-
----
-layout: section
-class: section-header
----
-
-# Section 2
-## The Origin Story
-
-<!--
-Here's where the project actually started—the Terraform provider wasn't a sideshow; it was the proving ground for the same joint-engineering pattern we reused for BGP.
+I'll own this up front: I say "I can barely spell BGP"—and I mean it. What I brought was OSD, GCP, and OpenShift depth plus live cluster access; what the AI brought was real BGP mechanics, NCC and Cloud Router APIs, and the patience to chew through a 153-endpoint OCM OpenAPI spec.
 -->
 
 ---
@@ -484,6 +514,58 @@ Same method that worked for the TF provider:
 
 <!--
 I answered that I'd been planning to take a run at it anyway—same playbook as the provider: Keel first, references for NCC docs and rosa-bgp, then joint engineering from session one. First commit in osd-gcp-cudn-routing landed March 26.
+-->
+
+---
+
+# Building Incrementally — Like Regular Dev
+
+No 1-shot. Each phase revealed what the next phase needed to be.
+
+<RhTable
+  :headers="['Phase', 'Form', 'What We Learned']"
+  :rows="[
+    ['1', 'Quick eval — in the TF provider repo', 'GCP NCC + Router Appliance is the right primitive; concept is sound'],
+    ['2', 'Own repo: Terraform + shell scripts', 'Hub/spoke topology works; BGP config is static — but cluster topology is not'],
+    ['3', 'Quick-and-dirty Python controller', 'Dynamic reconciliation of NCC spokes and Cloud Router peers is viable'],
+    ['4', 'Production-ish Golang controller', 'Typed and testable — but still not Kubernetes-native; no CRD, no RBAC'],
+    ['5', 'Kubernetes operator (CRD-based)', 'Self-healing reconciliation loop, audit trail, RBAC — production-ready'],
+  ]"
+/>
+
+> *"We didn't design this upfront. Each stage taught us what the next one needed to be — exactly like normal engineering."*
+
+<!--
+I want to be explicit about this: we did not 1-shot the design. We evaluated the idea in the TF provider repo first, proved the GCP primitives were right, moved to a dedicated repo, then discovered static Terraform wasn't enough because BGP state is coupled to live cluster topology. That insight drove us from scripts to a Python controller, then a Go controller, then a full operator. The progression is normal engineering—each failure mode revealed the requirements for the next form.
+-->
+
+---
+
+# Why an Operator, Not Just Terraform
+
+The fundamental problem: BGP routing state mirrors **live cluster topology** — nodes scale, VMs migrate.
+
+<RhTable
+  :headers="['Event', 'Terraform only', 'Kubernetes Operator']"
+  :rows="[
+    ['New worker node added', 'Manual re-plan + apply', 'Reconciliation loop reacts immediately'],
+    ['Node drained or removed', 'Drift until someone runs tf apply', 'NCC spoke and BGP peer removed automatically'],
+    ['VM live-migrates to a new worker', 'No awareness — routes are stale', 'Route advertisement updates on the new worker'],
+    ['Cluster scales up or down', 'Human in the loop required', 'Self-healing — no human in the loop'],
+  ]"
+/>
+
+<div class="mt-4 text-sm text-[var(--rh-muted)]">
+
+Terraform is the right tool for the **static layer**: VPCs, NCC hub, Cloud Router, firewall rules.
+The operator owns the **dynamic layer**: per-node NCC spokes, Cloud Router BGP peers, FRR CRs.
+
+</div>
+
+> *"Terraform provisions the highway. The operator manages traffic on it in real time."*
+
+<!--
+This is the architectural insight that forced the operator: GCP NCC Router Appliance spokes and Cloud Router BGP peers have to map 1:1 to worker nodes. When a node disappears—scaling event, preemption, live migration—the spoke and peer have to go with it. Terraform can do that if you re-run it, but Kubernetes is already watching for those events. An operator is the idiomatic way to keep GCP state in sync with cluster state without a human re-running tf apply on every node churn event. This distinction is worth making explicit because it's non-obvious: it's not that Terraform is "too basic"—it's that the problem domain is inherently event-driven.
 -->
 
 ---
